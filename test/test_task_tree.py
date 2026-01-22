@@ -16,8 +16,7 @@ from io import StringIO
 from collections import defaultdict
 from typing import Dict, List, Set
 
-# Import from parent directory
-sys.path.insert(0, '..')
+# Import from installed package
 from twh import build_dependency_graph, print_tree_normal, print_tree_reverse, format_task
 
 
@@ -248,7 +247,7 @@ class TestReverseModeHierarchy(unittest.TestCase):
         self.assertEqual(output.count("[3]"), 1)
 
     def test_same_tasks_as_normal_mode(self):
-        """Reverse mode should show exactly the same tasks as normal mode."""
+        """Reverse mode should show the same set of tasks as normal mode."""
         tasks = [
             {"uuid": "a", "id": 1, "description": "A", "urgency": 1.0},
             {"uuid": "b", "id": 2, "description": "B", "urgency": 2.0, "depends": "a"},
@@ -269,12 +268,16 @@ class TestReverseModeHierarchy(unittest.TestCase):
 
         sys.stdout = old_stdout
 
-        # Same task IDs should appear
+        # Same task IDs should appear at least once in both modes
+        # (In reverse mode, tasks with multiple dependencies may appear multiple times)
         for task_id in ['1', '2', '3', '4']:
-            self.assertEqual(
-                normal_output.count(f'[{task_id}]'),
-                reverse_output.count(f'[{task_id}]'),
-                f"Task {task_id} appears different number of times"
+            self.assertGreaterEqual(
+                normal_output.count(f'[{task_id}]'), 1,
+                f"Normal mode: Task {task_id} should appear at least once"
+            )
+            self.assertGreaterEqual(
+                reverse_output.count(f'[{task_id}]'), 1,
+                f"Reverse mode: Task {task_id} should appear at least once"
             )
 
     def test_blocking_task_at_top(self):
@@ -342,6 +345,41 @@ class TestReverseModeHierarchy(unittest.TestCase):
         lines = [l for l in output.split('\n') if '[2]' in l]
         self.assertEqual(len(lines), 1)
         self.assertFalse(lines[0].startswith('  '))
+
+    def test_task_with_two_dependencies_appears_under_both(self):
+        """Task 30 depends on both 28 and 29, so should appear under both in reverse view."""
+        tasks = [
+            {"uuid": "uuid28", "id": 28, "description": "Task 28", "urgency": 3.0},
+            {"uuid": "uuid29", "id": 29, "description": "Task 29", "urgency": 2.0},
+            {"uuid": "uuid30", "id": 30, "description": "Task 30", "urgency": 5.0, "depends": "uuid28,uuid29"}
+        ]
+        task_map, depends_on, depended_by = build_dependency_graph(tasks)
+        output = self.capture_output(task_map, depends_on, depended_by)
+
+        lines = output.split('\n')
+
+        # Find all occurrences of task 30
+        task30_lines = [i for i, l in enumerate(lines) if '[30]' in l]
+
+        # Task 30 should appear twice: once under task 28 and once under task 29
+        self.assertEqual(len(task30_lines), 2,
+                        f"Task 30 should appear twice in reverse view (under both dependencies), but appears {len(task30_lines)} times")
+
+        # Both occurrences should be indented (under their respective dependencies)
+        for line_idx in task30_lines:
+            self.assertTrue(lines[line_idx].startswith('  '),
+                          f"Task 30 should be indented under its dependency")
+
+        # Find task 28 and 29 positions
+        task28_line = next(i for i, l in enumerate(lines) if '[28]' in l)
+        task29_line = next(i for i, l in enumerate(lines) if '[29]' in l)
+
+        # One occurrence of task 30 should be after task 28, another after task 29
+        task30_after_28 = [idx for idx in task30_lines if idx > task28_line and (idx < task29_line or idx > task29_line)]
+        task30_after_29 = [idx for idx in task30_lines if idx > task29_line]
+
+        self.assertTrue(len(task30_after_28) >= 1, "Task 30 should appear at least once after task 28")
+        self.assertTrue(len(task30_after_29) >= 1, "Task 30 should appear at least once after task 29")
 
 
 class TestEdgeCases(unittest.TestCase):
@@ -436,12 +474,20 @@ class TestEdgeCases(unittest.TestCase):
         output_normal = self.capture_normal_output(task_map, depends_on, depended_by)
         output_reverse = self.capture_reverse_output(task_map, depends_on, depended_by)
 
-        # All 6 tasks should appear exactly once in both modes
+        # All 6 tasks should appear exactly once in normal mode
         for task_id in range(1, 7):
             self.assertEqual(output_normal.count(f'[{task_id}]'), 1,
                            f"Normal mode: Task {task_id} should appear exactly once")
-            self.assertEqual(output_reverse.count(f'[{task_id}]'), 1,
-                           f"Reverse mode: Task {task_id} should appear exactly once")
+
+        # In reverse mode, all tasks should appear at least once
+        # Task 4 depends on both B and C, so it should appear twice (under each dependency)
+        for task_id in range(1, 7):
+            self.assertGreaterEqual(output_reverse.count(f'[{task_id}]'), 1,
+                                   f"Reverse mode: Task {task_id} should appear at least once")
+
+        # Task 4 specifically should appear twice since it has two dependencies
+        self.assertEqual(output_reverse.count(f'[4]'), 2,
+                        f"Reverse mode: Task 4 should appear twice (under both B and C)")
 
     def test_urgency_sorting(self):
         """Tasks at same level should be sorted by urgency."""

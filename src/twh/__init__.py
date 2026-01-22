@@ -129,18 +129,20 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
     Print dependency tree with blocking tasks at top level.
     Tasks that have no dependencies are shown first, dependents below.
     """
-    visited = set()
 
-    def print_task_and_dependents(uuid: str, level: int = 0):
+    def print_task_and_dependents(uuid: str, level: int = 0, ancestors: Set[str] = None):
         """Recursively print a task and tasks that depend on it."""
-        if uuid in visited:
+        if ancestors is None:
+            ancestors = set()
+
+        # Prevent infinite recursion by checking if we're already in the current path
+        if uuid in ancestors:
             return
 
         if uuid not in task_map:
             # Task might be completed/deleted - skip it
             return
 
-        visited.add(uuid)
         task = task_map[uuid]
         print(f"{indent * level}{format_task(task)}")
 
@@ -150,7 +152,8 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
             for dep_uuid in sorted(dependents,
                                   key=lambda u: task_map.get(u, {}).get("urgency", 0),
                                   reverse=True):
-                print_task_and_dependents(dep_uuid, level + 1)
+                # Add current uuid to ancestors before recursing
+                print_task_and_dependents(dep_uuid, level + 1, ancestors | {uuid})
 
     # Find bottom-level tasks (tasks that don't depend on any other pending tasks)
     bottom_level = []
@@ -169,8 +172,26 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
         print()  # Blank line between top-level tasks
 
     # Handle orphaned tasks (e.g., circular dependencies)
-    # These are tasks that weren't visited because they're in dependency cycles
-    orphaned = [uuid for uuid in task_map if uuid not in visited]
+    # These are tasks that have dependencies but those dependencies form cycles,
+    # so they never got printed as descendants of bottom-level tasks
+    # To detect these, check if any of the task's dependencies are in bottom_level
+    def has_bottom_level_dependency(uuid: str, visited: Set[str] = None) -> bool:
+        """Check if a task's dependency chain eventually reaches a bottom-level task."""
+        if visited is None:
+            visited = set()
+        if uuid in visited:
+            return False  # Circular dependency
+        if uuid in bottom_level:
+            return True
+        visited.add(uuid)
+        # Check if any of this task's dependencies reach bottom level
+        for dep_uuid in depends_on.get(uuid, []):
+            if dep_uuid in task_map and has_bottom_level_dependency(dep_uuid, visited):
+                return True
+        return False
+
+    orphaned = [uuid for uuid in task_map
+                if uuid not in bottom_level and not has_bottom_level_dependency(uuid)]
     if orphaned:
         orphaned.sort(key=lambda u: task_map[u].get("urgency", 0), reverse=True)
         for uuid in orphaned:
