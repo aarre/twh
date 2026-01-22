@@ -1,2 +1,5 @@
 ﻿.idea
 test/__pycache__
+src/twh.egg-info
+twh.egg-info
+uv.lock
