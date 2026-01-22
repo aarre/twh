@@ -1,6 +1,13 @@
-﻿.idea
+﻿# IDE
+.idea
+
+# Python caching
+src/twh/__pycache__
 test/__pycache__
+
+# Release artifacts
 src/twh.egg-info
 twh.egg-info
+
+# UV detritus
 uv.lock
-src/twh/__pycache__
