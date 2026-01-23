@@ -8,11 +8,25 @@ import json
 import subprocess
 import sys
 from collections import defaultdict
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Optional
+
+import typer
 
 
 def get_tasks() -> List[Dict]:
-    """Execute taskwarrior and return parsed task data."""
+    """
+    Execute taskwarrior and return parsed task data.
+
+    Returns
+    -------
+    List[Dict]
+        List of pending tasks as dictionaries.
+
+    Raises
+    ------
+    SystemExit
+        If taskwarrior command fails or output cannot be parsed.
+    """
     try:
         result = subprocess.run(
             ["task", "export"],
@@ -63,7 +77,19 @@ def build_dependency_graph(tasks: List[Dict]) -> tuple[Dict[str, Dict], Dict[str
 
 
 def format_task(task: Dict) -> str:
-    """Format a task for display."""
+    """
+    Format a task for display in the tree view.
+
+    Parameters
+    ----------
+    task : Dict
+        Task dictionary containing id, description, and urgency fields.
+
+    Returns
+    -------
+    str
+        Formatted task string in the format "[id] description (urgency: value)".
+    """
     task_id = task.get("id", "?")
     description = task.get("description", "")
     urgency = task.get("urgency", 0)
@@ -74,7 +100,20 @@ def print_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]]
                      depended_by: Dict[str, Set[str]], indent: str = "  "):
     """
     Print dependency tree with unblocked tasks at top level.
-    Tasks with no dependencies are shown first, their dependencies indented below.
+
+    Tasks that are not blocked by other tasks are shown at the top level,
+    with their dependencies (blocking tasks) indented below them.
+
+    Parameters
+    ----------
+    task_map : Dict[str, Dict]
+        Mapping from UUID to task dictionary.
+    depends_on : Dict[str, Set[str]]
+        Mapping from UUID to set of UUIDs this task depends on.
+    depended_by : Dict[str, Set[str]]
+        Mapping from UUID to set of UUIDs that depend on this task.
+    indent : str, optional
+        Indentation string for each level (default: "  ").
     """
     visited = set()
 
@@ -127,7 +166,20 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
                       depended_by: Dict[str, Set[str]], indent: str = "  "):
     """
     Print dependency tree with blocking tasks at top level.
-    Tasks that have no dependencies are shown first, dependents below.
+
+    Tasks that have no dependencies (blocking tasks) are shown at the top level,
+    with tasks that depend on them indented below.
+
+    Parameters
+    ----------
+    task_map : Dict[str, Dict]
+        Mapping from UUID to task dictionary.
+    depends_on : Dict[str, Set[str]]
+        Mapping from UUID to set of UUIDs this task depends on.
+    depended_by : Dict[str, Set[str]]
+        Mapping from UUID to set of UUIDs that depend on this task.
+    indent : str, optional
+        Indentation string for each level (default: "  ").
     """
 
     def print_task_and_dependents(uuid: str, level: int = 0, ancestors: Set[str] = None):
@@ -199,17 +251,24 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
             print()
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Display Taskwarrior tasks in hierarchical dependency view"
-    )
-    parser.add_argument(
+app = typer.Typer(help="Hierarchical views of Taskwarrior tasks")
+
+
+@app.command()
+def tree(
+    reverse: bool = typer.Option(
+        False,
         "--reverse",
-        action="store_true",
+        "-r",
         help="Show most-depended-upon tasks at top level (reverse view)"
     )
-    args = parser.parse_args()
+):
+    """
+    Display Taskwarrior tasks in hierarchical dependency tree view.
 
+    This is the default command that shows tasks organized by their
+    dependencies.
+    """
     tasks = get_tasks()
 
     if not tasks:
@@ -218,10 +277,90 @@ def main():
 
     task_map, depends_on, depended_by = build_dependency_graph(tasks)
 
-    if args.reverse:
+    if reverse:
         print_tree_reverse(task_map, depends_on, depended_by)
     else:
         print_tree_normal(task_map, depends_on, depended_by)
+
+
+@app.command()
+def graph(
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output path for Mermaid file (default: tasks.mmd)"
+    ),
+    csv: Optional[str] = typer.Option(
+        None,
+        "--csv",
+        "-c",
+        help="Output path for CSV export (default: tasks.csv)"
+    ),
+    render: bool = typer.Option(
+        True,
+        "--render/--no-render",
+        help="Render Mermaid to PNG and open it"
+    ),
+):
+    """
+    Generate Mermaid flowchart of task dependencies.
+
+    Creates a Mermaid diagram showing task dependencies, optionally
+    renders it to PNG, and opens the result in the default viewer.
+    """
+    from pathlib import Path
+    from .graph import get_tasks_from_taskwarrior, create_task_graph
+
+    # Get tasks
+    tasks = get_tasks_from_taskwarrior()
+
+    if not tasks:
+        print("No pending tasks found.")
+        return
+
+    # Set default output paths
+    output_mmd = Path(output) if output else Path("tasks.mmd")
+    output_csv = Path(csv) if csv else Path("tasks.csv")
+
+    # Generate graph
+    print(f"Generating Mermaid graph: {output_mmd}")
+    mermaid_content = create_task_graph(
+        tasks,
+        output_mmd=output_mmd,
+        output_csv=output_csv
+    )
+
+    print(f"Generated Mermaid file: {output_mmd}")
+    print(f"Generated CSV file: {output_csv}")
+
+    # Render to PNG if requested
+    if render:
+        from .renderer import render_mermaid_to_png, open_file
+
+        png_path = output_mmd.with_suffix('.png')
+        print(f"Rendering to PNG: {png_path}")
+
+        try:
+            render_mermaid_to_png(output_mmd, png_path)
+            print(f"Successfully rendered to: {png_path}")
+            open_file(png_path)
+        except Exception as e:
+            print(f"Error rendering to PNG: {e}", file=sys.stderr)
+            print("You can view the Mermaid file in a Mermaid-compatible editor.")
+
+
+def main():
+    """
+    Entry point for the twh command.
+
+    If no command is provided, defaults to the 'tree' command.
+    """
+    # Check if any arguments were provided
+    if len(sys.argv) == 1:
+        # No arguments, run the default tree command
+        sys.argv.append("tree")
+    app()
 
 
 if __name__ == "__main__":

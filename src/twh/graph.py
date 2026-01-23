@@ -1,84 +1,278 @@
 #!/usr/bin/env python3
-
 """
-Here’s a no-fuss way to turn your task list (e.g., Taskwarrior export) into a clean Mermaid flowchart and a CSV you can paste straight into Tana.
+Taskwarrior dependency graph visualization using Mermaid.
 
-What this does (in plain English)
-
-Reads tasks (JSON on stdin), dedupes edges, and collapses trivial chains into single arrows for a tidy Mermaid diagram.
-
-Emits tasks.csv with columns Title, Body, Tags, UUID, DependsOn so you can copy‑paste into Google Sheets → paste into Tana to recreate links or turn them into references.
-
-No TUI, no extra tooling—just Python.
-
-Usage
------
-
-    task export | python3 task2mermaid_tana.py > graph.mmd
-
-Files produced: graph.mmd (Mermaid) and tasks.csv (for Tana import).
-
-Quick tips
-
-View Mermaid: open graph.mmd in a Mermaid live editor or VS Code Mermaid preview.
-
-Tana import: open tasks.csv in Google Sheets; copy all; paste into Tana. UUID and DependsOn let you rebuild dependency links.
-
-Windows/WSL: this is editor/browser‑based (no Graphviz needed). If you want DOT rendering, install Graphviz (WSL often smoother).
-
-If you want, I can also add a tiny flag to filter by +PROJECT or collapse/expand by tag.
+This module provides functionality to convert Taskwarrior task exports into
+Mermaid flowcharts and CSV files for import into other systems (e.g., Tana).
 """
-import sys,json,csv
+
+import csv
+import json
+import subprocess
+import sys
 from collections import defaultdict
+from pathlib import Path
+from typing import Dict, List, Set, Tuple, Optional
 
-def read_tasks():
-    data = json.load(sys.stdin)
-    return data if isinstance(data,list) else [data]
 
-def deps_list(f):
-    if not f: return []
-    if isinstance(f,list): return f
-    return [x.strip() for x in str(f).split(',') if x.strip()]
+def _parse_taskwarrior_json(text: str) -> List[Dict]:
+    """
+    Parse taskwarrior JSON output that may be an array or line-delimited JSON.
+    """
+    try:
+        data = json.loads(text)
+        return data if isinstance(data, list) else [data]
+    except json.JSONDecodeError:
+        tasks: List[Dict] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            tasks.append(json.loads(line))
+        return tasks
 
-tasks = read_tasks()
-uid_map = {t['uuid']:t for t in tasks if 'uuid' in t}
-succ=defaultdict(set); pred=defaultdict(set)
-for t in tasks:
-    u=t.get('uuid')
-    if not u: continue
-    for d in deps_list(t.get('depends')):
-        if d in uid_map:
-            succ[d].add(u); pred[u].add(d)
 
-# build mermaid edges, collapse simple chains (simple heuristic)
-visited=set(); edges=[]
-for u in uid_map:
-    if len(pred[u])!=1:
-        for s in succ.get(u,[]):
-            if (u,s) in visited: continue
-            chain=[u]; cur=s
-            while True:
-                chain.append(cur); visited.add((chain[-2],cur))
-                if len(pred[cur])==1 and len(succ[cur])==1:
-                    cur = next(iter(succ[cur]))
-                    if (chain[-1],cur) in visited: break
-                else: break
-            edges.append(chain)
+def get_tasks_from_taskwarrior() -> List[Dict]:
+    """
+    Execute taskwarrior and return parsed task data.
 
-# write mermaid to stdout (so you can redirect to graph.mmd)
-print('flowchart TD')
-for chain in edges:
-    labels = [uid_map[x].get('description','').replace('\n',' ')[0:60].replace('"','') for x in chain]
-    mer = ' --> '.join([f'"{labels[i]}\n({chain[i][:8]})"' for i in range(len(chain))])
-    print('  '+mer)
+    Returns
+    -------
+    List[Dict]
+        List of pending tasks as dictionaries.
 
-# write CSV for Tana import (Title, Body, Tags, UUID, DependsOn)
-with open('tasks.csv','w',newline='',encoding='utf-8') as f:
-    w=csv.writer(f)
-    w.writerow(['Title','Body','Tags','UUID','DependsOn'])
-    for u,t in uid_map.items():
-        title = t.get('description','')
-        body = f"task:{t.get('id','')} entry:{t.get('entry','') or ''}"
-        tags = ';'.join(t.get('tags',[]))
-        depends = ','.join(sorted(pred.get(u,[])))
-        w.writerow([title,body,tags,u,depends])
+    Raises
+    ------
+    subprocess.CalledProcessError
+        If taskwarrior command fails.
+    json.JSONDecodeError
+        If taskwarrior output cannot be parsed.
+    """
+    try:
+        result = subprocess.run(
+            ["task", "export"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        tasks = _parse_taskwarrior_json(result.stdout)
+        # Filter to pending tasks only
+        return [t for t in tasks if t.get("status") == "pending"]
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing taskwarrior: {e}", file=sys.stderr)
+        raise
+    except json.JSONDecodeError as e:
+        print(f"Error parsing taskwarrior output: {e}", file=sys.stderr)
+        raise
+
+
+def read_tasks_from_json(json_data: str) -> List[Dict]:
+    """
+    Parse tasks from JSON string.
+
+    Parameters
+    ----------
+    json_data : str
+        JSON string containing task data.
+
+    Returns
+    -------
+    List[Dict]
+        List of tasks as dictionaries.
+    """
+    return _parse_taskwarrior_json(json_data)
+
+
+def parse_dependencies(dep_field: Optional[str]) -> List[str]:
+    """
+    Parse the dependencies field from a task.
+
+    Parameters
+    ----------
+    dep_field : Optional[str]
+        The 'depends' field from a task, which can be a comma-separated
+        string of UUIDs or None.
+
+    Returns
+    -------
+    List[str]
+        List of dependency UUIDs.
+    """
+    if not dep_field:
+        return []
+    if isinstance(dep_field, list):
+        return dep_field
+    return [x.strip() for x in str(dep_field).split(',') if x.strip()]
+
+
+def build_dependency_graph(tasks: List[Dict]) -> Tuple[Dict[str, Dict], Dict[str, Set[str]], Dict[str, Set[str]]]:
+    """
+    Build dependency graph structures from task list.
+
+    Parameters
+    ----------
+    tasks : List[Dict]
+        List of task dictionaries.
+
+    Returns
+    -------
+    uid_map : Dict[str, Dict]
+        Mapping from UUID to task dictionary.
+    succ : Dict[str, Set[str]]
+        Successors: mapping from UUID to set of UUIDs that depend on it.
+    pred : Dict[str, Set[str]]
+        Predecessors: mapping from UUID to set of UUIDs it depends on.
+    """
+    uid_map = {t['uuid']: t for t in tasks if 'uuid' in t}
+    succ = defaultdict(set)
+    pred = defaultdict(set)
+
+    for t in tasks:
+        u = t.get('uuid')
+        if not u:
+            continue
+        for d in parse_dependencies(t.get('depends')):
+            if d in uid_map:
+                succ[d].add(u)
+                pred[u].add(d)
+
+    return uid_map, succ, pred
+
+
+def collapse_chains(uid_map: Dict[str, Dict], succ: Dict[str, Set[str]],
+                    pred: Dict[str, Set[str]]) -> List[List[str]]:
+    """
+    Collapse simple dependency chains into single edges for cleaner visualization.
+
+    A chain is a sequence of tasks where each task (except the first and last)
+    has exactly one predecessor and one successor.
+
+    Parameters
+    ----------
+    uid_map : Dict[str, Dict]
+        Mapping from UUID to task dictionary.
+    succ : Dict[str, Set[str]]
+        Successors mapping.
+    pred : Dict[str, Set[str]]
+        Predecessors mapping.
+
+    Returns
+    -------
+    List[List[str]]
+        List of chains, where each chain is a list of UUIDs.
+    """
+    visited = set()
+    edges = []
+
+    for u in uid_map:
+        if len(pred[u]) != 1:
+            for s in succ.get(u, []):
+                if (u, s) in visited:
+                    continue
+                chain = [u]
+                cur = s
+                while True:
+                    chain.append(cur)
+                    visited.add((chain[-2], cur))
+                    if len(pred[cur]) == 1 and len(succ[cur]) == 1:
+                        cur = next(iter(succ[cur]))
+                        if (chain[-1], cur) in visited:
+                            break
+                    else:
+                        break
+                edges.append(chain)
+
+    return edges
+
+
+def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
+    """
+    Generate Mermaid flowchart syntax from dependency chains.
+
+    Parameters
+    ----------
+    uid_map : Dict[str, Dict]
+        Mapping from UUID to task dictionary.
+    chains : List[List[str]]
+        List of dependency chains.
+
+    Returns
+    -------
+    str
+        Mermaid flowchart definition.
+    """
+    lines = ['flowchart TD']
+
+    for chain in chains:
+        labels = []
+        for uuid in chain:
+            desc = uid_map[uuid].get('description', '')
+            # Clean description: remove newlines, limit length, escape quotes
+            desc_clean = desc.replace('\n', ' ')[:60].replace('"', '')
+            labels.append(desc_clean)
+
+        # Create arrow chain with short UUIDs
+        mer = ' --> '.join([
+            f'"{labels[i]}\\n({chain[i][:8]})"'
+            for i in range(len(chain))
+        ])
+        lines.append('  ' + mer)
+
+    return '\n'.join(lines)
+
+
+def write_csv_export(uid_map: Dict[str, Dict], pred: Dict[str, Set[str]],
+                     output_path: Path) -> None:
+    """
+    Write tasks to CSV file for import into other systems (e.g., Tana).
+
+    Parameters
+    ----------
+    uid_map : Dict[str, Dict]
+        Mapping from UUID to task dictionary.
+    pred : Dict[str, Set[str]]
+        Predecessors mapping.
+    output_path : Path
+        Path to output CSV file.
+    """
+    with open(output_path, 'w', newline='', encoding='utf-8') as f:
+        w = csv.writer(f)
+        w.writerow(['Title', 'Body', 'Tags', 'UUID', 'DependsOn'])
+        for u, t in uid_map.items():
+            title = t.get('description', '')
+            body = f"task:{t.get('id', '')} entry:{t.get('entry', '') or ''}"
+            tags = ';'.join(t.get('tags', []))
+            depends = ','.join(sorted(pred.get(u, [])))
+            w.writerow([title, body, tags, u, depends])
+
+
+def create_task_graph(tasks: List[Dict], output_mmd: Optional[Path] = None,
+                      output_csv: Optional[Path] = None) -> str:
+    """
+    Create Mermaid graph and optional CSV export from task list.
+
+    Parameters
+    ----------
+    tasks : List[Dict]
+        List of task dictionaries.
+    output_mmd : Optional[Path]
+        Path to write Mermaid file. If None, no file is written.
+    output_csv : Optional[Path]
+        Path to write CSV file. If None, no file is written.
+
+    Returns
+    -------
+    str
+        Mermaid flowchart definition.
+    """
+    uid_map, succ, pred = build_dependency_graph(tasks)
+    chains = collapse_chains(uid_map, succ, pred)
+    mermaid_content = generate_mermaid(uid_map, chains)
+
+    if output_mmd:
+        output_mmd.write_text(mermaid_content, encoding='utf-8')
+
+    if output_csv:
+        write_csv_export(uid_map, pred, output_csv)
+
+    return mermaid_content
