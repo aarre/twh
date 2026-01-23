@@ -1,3 +1,22 @@
+## 0.3.0 (2026-01-23)
+
+### Features
+
+- **graph**: add graph feature
+- **graph**: add new script from chatgpt pulse
+
+### Fixes
+
+- **gitignore**: add sley to .gitignore
+
+### Tests
+
+- **test**: add unit tests
+
+### Build
+
+- **pyproject**: add commitizen configuration
+
 ## 0.2.0 (2026-01-22)
 
 ### Features
