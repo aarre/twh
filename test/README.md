@@ -1,23 +1,41 @@
-# Task Tree Test Suite
+# twh Test Suite
 
-Comprehensive unit tests for `task_tree.py`.
+Comprehensive unit and integration tests for the twh package.
 
 ## Running Tests
 
 ```bash
 # Run all tests
-cd test
-python -m unittest test_task_tree.py
-
-# Run specific test class
-python -m unittest test_task_tree.TestNormalModeHierarchy
-
-# Run specific test
-python -m unittest test_task_tree.TestNormalModeHierarchy.test_all_tasks_appear_exactly_once
+pytest
 
 # Run with verbose output
-python -m unittest test_task_tree.py -v
+pytest -v
+
+# Run specific test file
+pytest test/test_task_tree.py
+pytest test/test_graph.py
+pytest test/test_integration.py
+
+# Run specific test class
+pytest test/test_task_tree.py::TestNormalModeHierarchy
+
+# Run specific test
+pytest test/test_task_tree.py::TestNormalModeHierarchy::test_all_tasks_appear_exactly_once
+
+# Run with coverage
+pytest --cov=twh
 ```
+
+## Test Files
+
+### `test_task_tree.py`
+Tests for the hierarchical tree view functionality
+
+### `test_graph.py`
+Tests for the Mermaid graph generation module
+
+### `test_integration.py`
+Integration tests for complete workflows
 
 ## Test Coverage
 
