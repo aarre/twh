@@ -9,6 +9,8 @@ description = "Hierarchical views of Taskwarrior tasks"
 requires-python = ">=3.14"
 dependencies = [
     "pytest>=9.0.2",
+    "typer>=0.15.0",
+    "pyppeteer>=2.0.0",
 ]
 
 [project.scripts]
