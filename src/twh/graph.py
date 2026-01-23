@@ -201,6 +201,17 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
     str
         Mermaid flowchart definition.
     """
+    def sanitize_label(text: str) -> str:
+        text = text.replace('\r', ' ').replace('\n', ' ')
+        text = text.replace('"', '')
+        text = text.replace('\\', '\\\\')
+        text = text.replace('<', '&lt;').replace('>', '&gt;')
+        text = text.replace('[', '(').replace(']', ')')
+        return text[:60]
+
+    def node_id(uuid: str) -> str:
+        return f"t_{uuid.replace('-', '')}"
+
     lines = ['flowchart TD']
 
     for chain in chains:
@@ -208,12 +219,11 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
         for uuid in chain:
             desc = uid_map[uuid].get('description', '')
             # Clean description: remove newlines, limit length, escape quotes
-            desc_clean = desc.replace('\n', ' ')[:60].replace('"', '')
-            labels.append(desc_clean)
+            labels.append(sanitize_label(desc))
 
         # Create arrow chain with short UUIDs
         mer = ' --> '.join([
-            f'"{labels[i]}\\n({chain[i][:8]})"'
+            f'{node_id(chain[i])}["{labels[i]}<br/>({chain[i][:8]})"]'
             for i in range(len(chain))
         ])
         lines.append('  ' + mer)

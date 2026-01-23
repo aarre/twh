@@ -347,7 +347,10 @@ def graph(
             open_file(png_path)
         except Exception as e:
             print(f"Error rendering to PNG: {e}", file=sys.stderr)
-            print("You can view the Mermaid file in a Mermaid-compatible editor.")
+            print(
+                "You can view the Mermaid file in a Mermaid-compatible editor "
+                "(e.g., VS Code with a Mermaid extension, or https://mermaid.live/)."
+            )
 
 
 def main():
@@ -356,10 +359,11 @@ def main():
 
     If no command is provided, defaults to the 'tree' command.
     """
-    # Check if any arguments were provided
+    # Default to the tree command when no explicit subcommand is provided.
     if len(sys.argv) == 1:
-        # No arguments, run the default tree command
         sys.argv.append("tree")
+    elif sys.argv[1].startswith("-"):
+        sys.argv.insert(1, "tree")
     app()
 
 

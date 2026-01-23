@@ -8,6 +8,7 @@ different platforms.
 """
 
 import asyncio
+import atexit
 import os
 import platform
 import subprocess
@@ -15,6 +16,7 @@ import sys
 from pathlib import Path
 from shutil import which
 from typing import Union
+import tempfile
 
 
 def render_mermaid_to_png(mermaid_file: Path, output_file: Path) -> None:
@@ -41,8 +43,14 @@ def render_mermaid_to_png(mermaid_file: Path, output_file: Path) -> None:
     # Read mermaid content
     mermaid_content = mermaid_file.read_text(encoding='utf-8')
 
-    # Run async rendering
-    asyncio.run(_render_mermaid_async(mermaid_content, output_file))
+    # Run async rendering with a dedicated loop to avoid atexit warnings.
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(_render_mermaid_async(mermaid_content, output_file))
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
 
 
 async def _render_mermaid_async(mermaid_content: str, output_file: Path) -> None:
@@ -102,15 +110,31 @@ async def _render_mermaid_async(mermaid_content: str, output_file: Path) -> None
 
     browser = None
     chromium_path = _detect_chromium_executable()
+    user_data_dir = None
+    if chromium_path and _is_windows_exe_on_cygwin(chromium_path):
+        user_data_dir = _create_windows_user_data_dir()
     try:
         # Launch headless browser
         launch_kwargs = {
             'headless': True,
-            'args': ['--no-sandbox', '--disable-setuid-sandbox'],
+            'args': [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+            ],
         }
         if chromium_path:
             launch_kwargs['executablePath'] = chromium_path
+        if user_data_dir:
+            launch_kwargs['userDataDir'] = user_data_dir
         browser = await launch(**launch_kwargs)
+        launcher = getattr(browser, "_launcher", None)
+        if launcher and hasattr(atexit, "unregister"):
+            try:
+                atexit.unregister(launcher._close_process)
+            except Exception:
+                pass
         page = await browser.newPage()
 
         # Set viewport to a reasonable size
@@ -146,7 +170,8 @@ async def _render_mermaid_async(mermaid_content: str, output_file: Path) -> None
         await element.screenshot({'path': str(output_file), 'omitBackground': False})
 
     except Exception as e:
-        raise RuntimeError(f"Failed to render Mermaid diagram: {e}")
+        exe_hint = f" (executable: {chromium_path})" if chromium_path else ""
+        raise RuntimeError(f"Failed to render Mermaid diagram: {e}{exe_hint}")
     finally:
         if browser:
             await browser.close()
@@ -239,11 +264,11 @@ def _detect_chromium_executable() -> Union[str, None]:
         ])
     elif is_cygwin:
         candidates.extend([
+            '/cygdrive/c/Program Files/Google/Chrome/Application/chrome.exe',
+            '/cygdrive/c/Program Files (x86)/Google/Chrome/Application/chrome.exe',
             '/usr/bin/chromium',
             '/usr/bin/chromium-browser',
             '/usr/bin/google-chrome',
-            '/cygdrive/c/Program Files/Google/Chrome/Application/chrome.exe',
-            '/cygdrive/c/Program Files (x86)/Google/Chrome/Application/chrome.exe',
         ])
     elif is_wsl:
         candidates.extend([
@@ -272,3 +297,34 @@ def _detect_chromium_executable() -> Union[str, None]:
             return path
 
     return None
+
+
+def _is_windows_exe_on_cygwin(executable_path: str) -> bool:
+    return sys.platform.startswith('cygwin') and executable_path.lower().endswith('.exe')
+
+
+def _create_windows_user_data_dir() -> str:
+    """
+    Create a temp user data directory with a Windows path for Chrome on Cygwin.
+    """
+    base = os.environ.get('LOCALAPPDATA') or os.environ.get('TEMP') or os.environ.get('TMP')
+    if base and Path(base).exists():
+        cyg_base = Path(base)
+    else:
+        cyg_base = Path('/cygdrive/c/Windows/Temp')
+    cyg_base.mkdir(parents=True, exist_ok=True)
+    cyg_dir = Path(tempfile.mkdtemp(prefix='twh-chrome-', dir=str(cyg_base)))
+    return _cygwin_to_windows_path(str(cyg_dir))
+
+
+def _cygwin_to_windows_path(path_str: str) -> str:
+    """
+    Convert /cygdrive/<drive>/path to <Drive>:\\path for Windows executables.
+    """
+    if path_str.startswith('/cygdrive/'):
+        parts = Path(path_str).parts
+        if len(parts) >= 4 and parts[1] == 'cygdrive':
+            drive = parts[2].upper()
+            rest = '\\'.join(parts[3:])
+            return f"{drive}:\\{rest}"
+    return path_str

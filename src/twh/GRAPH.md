@@ -401,6 +401,7 @@ You can view the Mermaid file in a Mermaid-compatible editor.
 - If the download fails (e.g., `NoSuchKey` from the Chromium snapshot URL), `twh` will try to auto-detect a local Chrome/Chromium install. If that still fails, set `TWH_CHROMIUM_PATH` to a local browser binary and rerun, for example:
   - `export TWH_CHROMIUM_PATH=/usr/bin/chromium` (Cygwin package)
   - `export TWH_CHROMIUM_PATH=/cygdrive/c/Program\ Files/Google/Chrome/Application/chrome.exe`
+- If Cygwin is picking up the Windows `twh` script first, run `python -m twh` or add a shim in `~/bin/twh` that calls `/usr/bin/python3 -m twh` so Cygwin uses the editable install from `/cygdrive/d/Local/src/py/twh`.
 
 **File opening failed:**
 ```
