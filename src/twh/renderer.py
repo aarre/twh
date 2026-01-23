@@ -13,6 +13,7 @@ import os
 import platform
 import subprocess
 import sys
+import webbrowser
 from pathlib import Path
 from shutil import which
 from typing import Union
@@ -48,6 +49,30 @@ def render_mermaid_to_png(mermaid_file: Path, output_file: Path) -> None:
     try:
         asyncio.set_event_loop(loop)
         loop.run_until_complete(_render_mermaid_async(mermaid_content, output_file))
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
+
+
+def render_mermaid_to_svg(mermaid_file: Path, output_file: Path) -> None:
+    """
+    Render a Mermaid diagram file to SVG using pyppeteer.
+
+    Parameters
+    ----------
+    mermaid_file : Path
+        Path to the Mermaid (.mmd) file.
+    output_file : Path
+        Path where the SVG file should be saved.
+    """
+    if not mermaid_file.exists():
+        raise FileNotFoundError(f"Mermaid file not found: {mermaid_file}")
+
+    mermaid_content = mermaid_file.read_text(encoding='utf-8')
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(_render_mermaid_svg_async(mermaid_content, output_file))
     finally:
         asyncio.set_event_loop(None)
         loop.close()
@@ -177,6 +202,93 @@ async def _render_mermaid_async(mermaid_content: str, output_file: Path) -> None
             await browser.close()
 
 
+async def _render_mermaid_svg_async(mermaid_content: str, output_file: Path) -> None:
+    """
+    Asynchronously render Mermaid diagram to SVG.
+    """
+    from pyppeteer import launch
+
+    html_template = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script type="module">
+            import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+            mermaid.initialize({{
+                startOnLoad: true,
+                theme: 'default',
+                flowchart: {{
+                    useMaxWidth: true,
+                    htmlLabels: true,
+                    curve: 'basis'
+                }}
+            }});
+        </script>
+        <style>
+            body {{
+                margin: 20px;
+                background: white;
+            }}
+            .mermaid {{
+                text-align: center;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="mermaid">
+{mermaid_content}
+        </div>
+    </body>
+    </html>
+    """
+
+    html_content = html_template.format(mermaid_content=mermaid_content)
+    browser = None
+    chromium_path = _detect_chromium_executable()
+    user_data_dir = None
+    if chromium_path and _is_windows_exe_on_cygwin(chromium_path):
+        user_data_dir = _create_windows_user_data_dir()
+    try:
+        launch_kwargs = {
+            'headless': True,
+            'args': [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+            ],
+        }
+        if chromium_path:
+            launch_kwargs['executablePath'] = chromium_path
+        if user_data_dir:
+            launch_kwargs['userDataDir'] = user_data_dir
+        browser = await launch(**launch_kwargs)
+        launcher = getattr(browser, "_launcher", None)
+        if launcher and hasattr(atexit, "unregister"):
+            try:
+                atexit.unregister(launcher._close_process)
+            except Exception:
+                pass
+        page = await browser.newPage()
+        await page.setViewport({'width': 1920, 'height': 1080})
+        await page.setContent(html_content)
+        await page.waitForSelector('.mermaid svg', {'timeout': 10000})
+        await asyncio.sleep(0.5)
+        svg_markup = await page.evaluate('''() => {
+            const svg = document.querySelector('.mermaid svg');
+            return svg ? svg.outerHTML : null;
+        }''')
+        if not svg_markup:
+            raise RuntimeError("Mermaid SVG not found after rendering.")
+        output_file.write_text(svg_markup, encoding='utf-8')
+    except Exception as e:
+        exe_hint = f" (executable: {chromium_path})" if chromium_path else ""
+        raise RuntimeError(f"Failed to render Mermaid diagram: {e}{exe_hint}")
+    finally:
+        if browser:
+            await browser.close()
+
+
 def open_file(file_path: Union[str, Path]) -> None:
     """
     Open a file in the default system viewer across different platforms.
@@ -227,6 +339,16 @@ def open_file(file_path: Union[str, Path]) -> None:
             subprocess.run(['xdg-open', str(file_path)], check=True)
     except Exception as e:
         raise RuntimeError(f"Failed to open file {file_path}: {e}")
+
+
+def open_in_browser(file_path: Union[str, Path]) -> None:
+    """
+    Open a local file in the user's default web browser.
+    """
+    file_path = Path(file_path).resolve()
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+    webbrowser.open(file_path.as_uri())
 
 
 def _detect_chromium_executable() -> Union[str, None]:

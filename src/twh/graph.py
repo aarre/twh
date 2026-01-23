@@ -105,7 +105,10 @@ def parse_dependencies(dep_field: Optional[str]) -> List[str]:
     return [x.strip() for x in str(dep_field).split(',') if x.strip()]
 
 
-def build_dependency_graph(tasks: List[Dict]) -> Tuple[Dict[str, Dict], Dict[str, Set[str]], Dict[str, Set[str]]]:
+def build_dependency_graph(
+    tasks: List[Dict],
+    reverse: bool = False
+) -> Tuple[Dict[str, Dict], Dict[str, Set[str]], Dict[str, Set[str]]]:
     """
     Build dependency graph structures from task list.
 
@@ -133,8 +136,12 @@ def build_dependency_graph(tasks: List[Dict]) -> Tuple[Dict[str, Dict], Dict[str
             continue
         for d in parse_dependencies(t.get('depends')):
             if d in uid_map:
-                succ[d].add(u)
-                pred[u].add(d)
+                if reverse:
+                    succ[d].add(u)
+                    pred[u].add(d)
+                else:
+                    succ[u].add(d)
+                    pred[d].add(u)
 
     return uid_map, succ, pred
 
@@ -212,7 +219,7 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
     def node_id(uuid: str) -> str:
         return f"t_{uuid.replace('-', '')}"
 
-    lines = ['flowchart TD']
+    lines = ['flowchart LR']
 
     for chain in chains:
         labels = []
@@ -223,7 +230,7 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
 
         # Create arrow chain with short UUIDs
         mer = ' --> '.join([
-            f'{node_id(chain[i])}["{labels[i]}<br/>({chain[i][:8]})"]'
+            f'{node_id(chain[i])}["{labels[i]}"]'
             for i in range(len(chain))
         ])
         lines.append('  ' + mer)
@@ -256,8 +263,12 @@ def write_csv_export(uid_map: Dict[str, Dict], pred: Dict[str, Set[str]],
             w.writerow([title, body, tags, u, depends])
 
 
-def create_task_graph(tasks: List[Dict], output_mmd: Optional[Path] = None,
-                      output_csv: Optional[Path] = None) -> str:
+def create_task_graph(
+    tasks: List[Dict],
+    output_mmd: Optional[Path] = None,
+    output_csv: Optional[Path] = None,
+    reverse: bool = False
+) -> str:
     """
     Create Mermaid graph and optional CSV export from task list.
 
@@ -275,7 +286,7 @@ def create_task_graph(tasks: List[Dict], output_mmd: Optional[Path] = None,
     str
         Mermaid flowchart definition.
     """
-    uid_map, succ, pred = build_dependency_graph(tasks)
+    uid_map, succ, pred = build_dependency_graph(tasks, reverse=reverse)
     chains = collapse_chains(uid_map, succ, pred)
     mermaid_content = generate_mermaid(uid_map, chains)
 

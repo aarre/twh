@@ -29,7 +29,7 @@ pytest --cov=twh
 ## Test Files
 
 ### `test_task_tree.py`
-Tests for the hierarchical tree view functionality
+Tests for the hierarchical list view functionality
 
 ### `test_graph.py`
 Tests for the Mermaid graph generation module

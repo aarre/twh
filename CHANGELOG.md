@@ -30,4 +30,4 @@
 - **gitignore**: ignore .sley
 - **pyproject**: fix commitizen configuration
 - **pyproject**: add pytest dependency
-- **reverse**: fix bug where task with multiple dependents only shown once in --reverse
+- **reverse**: fix bug where task with multiple dependents only shown once in list reverse

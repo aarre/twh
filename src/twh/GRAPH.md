@@ -7,7 +7,7 @@ The `twh graph` command generates visual representations of Taskwarrior task dep
 This module converts Taskwarrior task exports into:
 1. **Mermaid flowchart diagrams** (.mmd files) - showing task dependencies as a directed graph
 2. **CSV exports** (.csv files) - for importing into other systems like Tana
-3. **PNG renderings** - automatically rendered and opened in your default image viewer
+3. **SVG renderings** - automatically rendered and opened in your default web browser
 
 ## Usage
 
@@ -23,7 +23,7 @@ This will:
 - Export all pending tasks from Taskwarrior
 - Generate `tasks.mmd` (Mermaid diagram)
 - Generate `tasks.csv` (CSV export)
-- Render to `tasks.png` and open it automatically
+- Render to `tasks.svg` and open it in your default web browser
 
 ### Custom Output Paths
 
@@ -33,12 +33,28 @@ Specify custom output paths:
 twh graph --output my-tasks.mmd --csv my-tasks.csv
 ```
 
-### Skip PNG Rendering
+### Reverse Graph Direction
+
+Show dependents above blockers (reverse view):
+
+```bash
+twh graph reverse
+```
+
+### Skip Rendering
 
 If you just want the Mermaid file without rendering:
 
 ```bash
 twh graph --no-render
+```
+
+### Render to PNG
+
+If you prefer PNG output:
+
+```bash
+twh graph --png
 ```
 
 ## Features
@@ -59,13 +75,10 @@ Task descriptions are automatically cleaned for display:
 - Descriptions are truncated to 60 characters
 - Quotes are removed to avoid Mermaid syntax errors
 
-### UUID Display
+### Node Labels
 
 Each task node shows:
 - The task description (truncated if needed)
-- The first 8 characters of the task UUID (for identification)
-
-Format: `"Task description\n(uuid-pre)"`
 
 ## Architecture
 
@@ -130,9 +143,9 @@ Generates Mermaid flowchart syntax from dependency chains.
 
 **Output Format:**
 ```
-flowchart TD
-  "Task A\n(aaaa-111)" --> "Task B\n(bbbb-222)" --> "Task C\n(cccc-333)"
-  "Task D\n(dddd-444)" --> "Task E\n(eeee-555)"
+flowchart LR
+  task_a["Task A"] --> task_b["Task B"] --> task_c["Task C"]
+  task_d["Task D"] --> task_e["Task E"]
 ```
 
 #### `write_csv_export(uid_map, pred, output_path)`
@@ -171,17 +184,17 @@ Main entry point that orchestrates the complete graph generation workflow.
 
 ## Rendering
 
-### PNG Rendering with Pyppeteer
+### SVG Rendering with Pyppeteer
 
-The `renderer` module provides PNG rendering using pyppeteer (headless Chrome):
+The `renderer` module provides SVG rendering using pyppeteer (headless Chrome):
 
-#### `render_mermaid_to_png(mermaid_file, output_file)`
+#### `render_mermaid_to_svg(mermaid_file, output_file)`
 
-Renders a Mermaid diagram to PNG.
+Renders a Mermaid diagram to SVG.
 
 **Parameters:**
 - `mermaid_file` (Path): Input .mmd file
-- `output_file` (Path): Output .png file
+- `output_file` (Path): Output .svg file
 
 **Process:**
 1. Reads Mermaid file content
@@ -190,7 +203,7 @@ Renders a Mermaid diagram to PNG.
 4. Waits for diagram rendering
 5. Calculates optimal viewport size
 6. Takes screenshot
-7. Saves as PNG
+7. Saves as SVG
 
 **Requirements:**
 - pyppeteer package
@@ -248,8 +261,8 @@ twh graph
 # Generating Mermaid graph: tasks.mmd
 # Generated Mermaid file: tasks.mmd
 # Generated CSV file: tasks.csv
-# Rendering to PNG: tasks.png
-# Successfully rendered to: tasks.png
+# Rendering to SVG: tasks.svg
+# Successfully rendered to: tasks.svg
 # [Image opens in default viewer]
 ```
 
@@ -263,14 +276,14 @@ twh graph --output project-deps.mmd --csv project-tasks.csv
 # Generating Mermaid graph: project-deps.mmd
 # Generated Mermaid file: project-deps.mmd
 # Generated CSV file: project-tasks.csv
-# Rendering to PNG: project-deps.png
-# Successfully rendered to: project-deps.png
+# Rendering to SVG: project-deps.svg
+# Successfully rendered to: project-deps.svg
 ```
 
 ### Example 3: Mermaid Only
 
 ```bash
-# Skip PNG rendering (faster, no browser needed)
+# Skip rendering (faster, no browser needed)
 twh graph --no-render
 
 # Output:
@@ -293,33 +306,32 @@ twh graph --no-render
 
 ### Flowchart Syntax
 
-The module generates "top-down" flowcharts:
+The module generates "left-to-right" flowcharts:
 
 ```mermaid
-flowchart TD
-  "Task description\n(uuid)" --> "Another task\n(uuid)"
+flowchart LR
+  task_a["Task description"] --> task_b["Another task"]
 ```
 
 ### Node Format
 
 Each node contains:
-- Task description (first line)
-- Short UUID in parentheses (second line)
+- Task description
 
-Example: `"Setup dev environment\n(a1b2c3d4)"`
+Example: `"Setup dev environment"`
 
 ### Edge Format
 
-Simple arrows (`-->`) connect dependent tasks:
-- Arrow points from dependency to dependent
-- `A --> B` means "B depends on A" (do A first, then B)
+Simple arrows (`-->`) connect tasks:
+- Arrow points from task to its dependency
+- `A --> B` means "A depends on B" (do B first, then A)
 
 ### Chains
 
 Linear chains are preserved as multi-step arrows:
 
 ```
-"Task A\n(uuid1)" --> "Task B\n(uuid2)" --> "Task C\n(uuid3)"
+task_a["Task A"] --> task_b["Task B"] --> task_c["Task C"]
 ```
 
 ### Branching
@@ -327,8 +339,8 @@ Linear chains are preserved as multi-step arrows:
 When multiple tasks depend on the same task, separate arrows are created:
 
 ```
-"Base Task\n(uuid)" --> "Task 1\n(uuid1)"
-"Base Task\n(uuid)" --> "Task 2\n(uuid2)"
+base["Base Task"] --> t1["Task 1"]
+base["Base Task"] --> t2["Task 2"]
 ```
 
 ### Diamond Dependencies
@@ -336,8 +348,8 @@ When multiple tasks depend on the same task, separate arrows are created:
 Complex dependencies (e.g., task D depends on both B and C):
 
 ```
-"A\n(uuid-a)" --> "B\n(uuid-b)" --> "D\n(uuid-d)"
-"A\n(uuid-a)" --> "C\n(uuid-c)" --> "D\n(uuid-d)"
+ta["A"] --> tb["B"] --> td["D"]
+ta["A"] --> tc["C"] --> td["D"]
 ```
 
 ## Testing
@@ -388,11 +400,11 @@ Error executing taskwarrior: [Errno 2] No such file or directory: 'task'
 
 **Rendering failed:**
 ```
-Error rendering to PNG: <error details>
-You can view the Mermaid file in a Mermaid-compatible editor.
+Error rendering to SVG: <error details>
+You can view the Mermaid file in a Mermaid-compatible editor (e.g., VS Code with a Mermaid extension, or https://mermaid.live/).
 ```
 - Mermaid file was still generated successfully
-- PNG rendering requires pyppeteer and Chromium
+- SVG/PNG rendering requires pyppeteer and Chromium
 - View .mmd file in VS Code with Mermaid extension, or https://mermaid.live/
 - Cygwin uses its own Python environment. If you installed `pyppeteer` in a Windows dev venv, Cygwin will not see it. Install `twh` (and its deps) into the Cygwin Python you run `twh` with, for example:
   - `python -m pip install -e /cygdrive/d/Local/src/py/twh`
@@ -408,14 +420,14 @@ You can view the Mermaid file in a Mermaid-compatible editor.
 Failed to open file <path>: <error>
 ```
 - File was created successfully but couldn't be opened
-- Manually open the PNG file from the filesystem
+- Manually open the SVG file from the filesystem
 
 ## Dependencies
 
 ### Python Packages
 
 - `typer>=0.15.0` - CLI framework
-- `pyppeteer>=2.0.0` - Headless Chrome for PNG rendering
+- `pyppeteer>=2.0.0` - Headless Chrome for SVG/PNG rendering
 
 ### External Tools
 
@@ -434,13 +446,14 @@ Failed to open file <path>: <error>
 The graph module integrates with the main `twh` CLI:
 
 ```bash
-# Show dependency tree (default)
+# Show dependency list (default)
 twh
-twh tree
-twh tree --reverse
+twh list
+twh list reverse
 
 # Generate dependency graph
 twh graph
+twh graph reverse
 twh graph --output custom.mmd
 twh graph --no-render
 

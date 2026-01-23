@@ -78,7 +78,7 @@ def build_dependency_graph(tasks: List[Dict]) -> tuple[Dict[str, Dict], Dict[str
 
 def format_task(task: Dict) -> str:
     """
-    Format a task for display in the tree view.
+    Format a task for display in the list view.
 
     Parameters
     ----------
@@ -99,7 +99,7 @@ def format_task(task: Dict) -> str:
 def print_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]],
                      depended_by: Dict[str, Set[str]], indent: str = "  "):
     """
-    Print dependency tree with unblocked tasks at top level.
+    Print dependency list with unblocked tasks at top level.
 
     Tasks that are not blocked by other tasks are shown at the top level,
     with their dependencies (blocking tasks) indented below them.
@@ -165,7 +165,7 @@ def print_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]]
 def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]],
                       depended_by: Dict[str, Set[str]], indent: str = "  "):
     """
-    Print dependency tree with blocking tasks at top level.
+    Print dependency list with blocking tasks at top level.
 
     Tasks that have no dependencies (blocking tasks) are shown at the top level,
     with tasks that depend on them indented below.
@@ -254,8 +254,12 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
 app = typer.Typer(help="Hierarchical views of Taskwarrior tasks")
 
 
-@app.command()
-def tree(
+@app.command("list")
+def list_tasks(
+    mode: Optional[str] = typer.Argument(
+        None,
+        help="Use 'reverse' for blocker-first view."
+    ),
     reverse: bool = typer.Option(
         False,
         "--reverse",
@@ -264,7 +268,7 @@ def tree(
     )
 ):
     """
-    Display Taskwarrior tasks in hierarchical dependency tree view.
+    Display Taskwarrior tasks in hierarchical dependency list view.
 
     This is the default command that shows tasks organized by their
     dependencies.
@@ -277,14 +281,52 @@ def tree(
 
     task_map, depends_on, depended_by = build_dependency_graph(tasks)
 
+    if mode:
+        if mode != "reverse":
+            raise typer.BadParameter("Only 'reverse' is supported as a mode.")
+        reverse = True
+
     if reverse:
         print_tree_reverse(task_map, depends_on, depended_by)
     else:
         print_tree_normal(task_map, depends_on, depended_by)
 
 
+@app.command("reverse")
+def list_reverse():
+    """
+    Alias for `twh list reverse`.
+    """
+    list_tasks(mode="reverse")
+
+
+@app.command("tree")
+def tree_alias(
+    reverse: bool = typer.Option(
+        False,
+        "--reverse",
+        "-r",
+        help="Show most-depended-upon tasks at top level (reverse view)"
+    )
+):
+    """
+    Alias for `twh list`.
+    """
+    list_tasks(reverse=reverse)
+
+
 @app.command()
 def graph(
+    mode: Optional[str] = typer.Argument(
+        None,
+        help="Use 'reverse' for blocker-first view."
+    ),
+    reverse: bool = typer.Option(
+        False,
+        "--reverse",
+        "-r",
+        help="Show most-depended-upon tasks at top level (reverse view)"
+    ),
     output: Optional[str] = typer.Option(
         None,
         "--output",
@@ -300,14 +342,19 @@ def graph(
     render: bool = typer.Option(
         True,
         "--render/--no-render",
-        help="Render Mermaid to PNG and open it"
+        help="Render Mermaid and open it"
+    ),
+    png: bool = typer.Option(
+        False,
+        "--png",
+        help="Render to PNG instead of SVG"
     ),
 ):
     """
     Generate Mermaid flowchart of task dependencies.
 
     Creates a Mermaid diagram showing task dependencies, optionally
-    renders it to PNG, and opens the result in the default viewer.
+    renders it to SVG (or PNG), and opens the result.
     """
     from pathlib import Path
     from .graph import get_tasks_from_taskwarrior, create_task_graph
@@ -319,6 +366,11 @@ def graph(
         print("No pending tasks found.")
         return
 
+    if mode:
+        if mode != "reverse":
+            raise typer.BadParameter("Only 'reverse' is supported as a mode.")
+        reverse = True
+
     # Set default output paths
     output_mmd = Path(output) if output else Path("tasks.mmd")
     output_csv = Path(csv) if csv else Path("tasks.csv")
@@ -328,42 +380,59 @@ def graph(
     mermaid_content = create_task_graph(
         tasks,
         output_mmd=output_mmd,
-        output_csv=output_csv
+        output_csv=output_csv,
+        reverse=reverse
     )
 
     print(f"Generated Mermaid file: {output_mmd}")
     print(f"Generated CSV file: {output_csv}")
 
-    # Render to PNG if requested
+    # Render output if requested
     if render:
-        from .renderer import render_mermaid_to_png, open_file
+        from .renderer import render_mermaid_to_png, render_mermaid_to_svg, open_file, open_in_browser
 
-        png_path = output_mmd.with_suffix('.png')
-        print(f"Rendering to PNG: {png_path}")
+        if png:
+            png_path = output_mmd.with_suffix('.png')
+            print(f"Rendering to PNG: {png_path}")
 
-        try:
-            render_mermaid_to_png(output_mmd, png_path)
-            print(f"Successfully rendered to: {png_path}")
-            open_file(png_path)
-        except Exception as e:
-            print(f"Error rendering to PNG: {e}", file=sys.stderr)
-            print(
-                "You can view the Mermaid file in a Mermaid-compatible editor "
-                "(e.g., VS Code with a Mermaid extension, or https://mermaid.live/)."
-            )
+            try:
+                render_mermaid_to_png(output_mmd, png_path)
+                print(f"Successfully rendered to: {png_path}")
+                open_file(png_path)
+            except Exception as e:
+                print(f"Error rendering to PNG: {e}", file=sys.stderr)
+                print(
+                    "You can view the Mermaid file in a Mermaid-compatible editor "
+                    "(e.g., VS Code with a Mermaid extension, or https://mermaid.live/)."
+                )
+        else:
+            svg_path = output_mmd.with_suffix('.svg')
+            print(f"Rendering to SVG: {svg_path}")
+            try:
+                render_mermaid_to_svg(output_mmd, svg_path)
+                print(f"Successfully rendered to: {svg_path}")
+                open_in_browser(svg_path)
+            except Exception as e:
+                print(f"Error rendering to SVG: {e}", file=sys.stderr)
+                print(
+                    "You can view the Mermaid file in a Mermaid-compatible editor "
+                    "(e.g., VS Code with a Mermaid extension, or https://mermaid.live/)."
+                )
 
 
 def main():
     """
     Entry point for the twh command.
 
-    If no command is provided, defaults to the 'tree' command.
+    If no command is provided, defaults to the 'list' command.
     """
-    # Default to the tree command when no explicit subcommand is provided.
+    # Default to the list command when no explicit subcommand is provided.
     if len(sys.argv) == 1:
-        sys.argv.append("tree")
+        sys.argv.append("list")
     elif sys.argv[1].startswith("-"):
-        sys.argv.insert(1, "tree")
+        sys.argv.insert(1, "list")
+    elif sys.argv[1] == "reverse":
+        sys.argv[1:2] = ["list", "reverse"]
     app()
 
 
