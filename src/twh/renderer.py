@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Mermaid diagram rendering to PNG and file opening utilities.
+Mermaid diagram rendering and file opening utilities.
 
-This module provides functionality to render Mermaid diagrams to PNG using
-pyppeteer (headless Chrome) and to open files in the default viewer across
-different platforms.
+This module provides functionality to render Mermaid diagrams to SVG/PNG using
+pyppeteer (headless Chrome) and to open files across different platforms.
 """
 
 import asyncio
@@ -13,7 +12,6 @@ import os
 import platform
 import subprocess
 import sys
-import webbrowser
 from pathlib import Path
 from shutil import which
 from typing import Union
@@ -142,6 +140,7 @@ async def _render_mermaid_async(mermaid_content: str, output_file: Path) -> None
         # Launch headless browser
         launch_kwargs = {
             'headless': True,
+            'autoClose': False,
             'args': [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -251,6 +250,7 @@ async def _render_mermaid_svg_async(mermaid_content: str, output_file: Path) -> 
     try:
         launch_kwargs = {
             'headless': True,
+            'autoClose': False,
             'args': [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -348,7 +348,22 @@ def open_in_browser(file_path: Union[str, Path]) -> None:
     file_path = Path(file_path).resolve()
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
-    webbrowser.open(file_path.as_uri())
+    url = file_path.as_uri()
+    system = platform.system().lower()
+    try:
+        if sys.platform.startswith('cygwin') or os.path.exists('/usr/bin/cygstart'):
+            subprocess.run(['cygstart', url], check=True)
+        elif system == 'windows' or sys.platform == 'win32':
+            if hasattr(os, 'startfile'):
+                os.startfile(url)
+            else:
+                subprocess.run(['cmd', '/c', 'start', '', url], check=True)
+        elif system == 'darwin':
+            subprocess.run(['open', url], check=True)
+        else:
+            subprocess.run(['xdg-open', url], check=True)
+    except Exception as e:
+        raise RuntimeError(f"Failed to open browser for {file_path}: {e}")
 
 
 def _detect_chromium_executable() -> Union[str, None]:

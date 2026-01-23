@@ -89,8 +89,8 @@ class TestBuildDependencyGraph(unittest.TestCase):
         ]
         uid_map, succ, pred = build_dependency_graph(tasks)
 
-        self.assertEqual(pred['a'], {'b'})
-        self.assertEqual(succ['b'], {'a'})
+        self.assertEqual(succ['a'], {'b'})
+        self.assertEqual(pred['b'], {'a'})
 
     def test_multiple_dependencies(self):
         """Test A depends on B and C."""
@@ -101,9 +101,9 @@ class TestBuildDependencyGraph(unittest.TestCase):
         ]
         uid_map, succ, pred = build_dependency_graph(tasks)
 
-        self.assertEqual(pred['a'], {'b', 'c'})
-        self.assertEqual(succ['b'], {'a'})
-        self.assertEqual(succ['c'], {'a'})
+        self.assertEqual(succ['a'], {'b', 'c'})
+        self.assertEqual(pred['b'], {'a'})
+        self.assertEqual(pred['c'], {'a'})
 
     def test_diamond_dependency(self):
         """Test diamond: D depends on B,C; B,C depend on A."""
@@ -115,12 +115,12 @@ class TestBuildDependencyGraph(unittest.TestCase):
         ]
         uid_map, succ, pred = build_dependency_graph(tasks)
 
-        self.assertEqual(pred['d'], {'b', 'c'})
-        self.assertEqual(pred['b'], {'a'})
-        self.assertEqual(pred['c'], {'a'})
-        self.assertEqual(succ['a'], {'b', 'c'})
-        self.assertEqual(succ['b'], {'d'})
-        self.assertEqual(succ['c'], {'d'})
+        self.assertEqual(succ['d'], {'b', 'c'})
+        self.assertEqual(succ['b'], {'a'})
+        self.assertEqual(succ['c'], {'a'})
+        self.assertEqual(pred['a'], {'b', 'c'})
+        self.assertEqual(pred['b'], {'d'})
+        self.assertEqual(pred['c'], {'d'})
 
     def test_missing_dependency_ignored(self):
         """Dependencies on non-existent tasks should be ignored."""
@@ -132,7 +132,7 @@ class TestBuildDependencyGraph(unittest.TestCase):
         # 'a' should still be in the map
         self.assertIn('a', uid_map)
         # But the dependency shouldn't be recorded
-        self.assertEqual(len(pred.get('a', set())), 0)
+        self.assertEqual(len(succ.get('a', set())), 0)
 
     def test_task_without_uuid_ignored(self):
         """Tasks without UUID should be ignored."""
@@ -144,6 +144,17 @@ class TestBuildDependencyGraph(unittest.TestCase):
 
         self.assertEqual(len(uid_map), 1)
         self.assertIn('a', uid_map)
+
+    def test_reverse_parameter(self):
+        """Reverse graph should flip edge direction."""
+        tasks = [
+            {'uuid': 'a', 'description': 'Task A', 'depends': 'b'},
+            {'uuid': 'b', 'description': 'Task B'}
+        ]
+        uid_map, succ, pred = build_dependency_graph(tasks, reverse=True)
+
+        self.assertEqual(pred['a'], {'b'})
+        self.assertEqual(succ['b'], {'a'})
 
 
 class TestCollapseChains(unittest.TestCase):
@@ -161,7 +172,7 @@ class TestCollapseChains(unittest.TestCase):
         self.assertEqual(len(chains), 0)
 
     def test_simple_chain(self):
-        """A -> B should produce one chain."""
+        """B -> A should produce one chain (dependent to dependency)."""
         tasks = [
             {'uuid': 'a', 'description': 'Task A'},
             {'uuid': 'b', 'description': 'Task B', 'depends': 'a'}
@@ -170,10 +181,10 @@ class TestCollapseChains(unittest.TestCase):
         chains = collapse_chains(uid_map, succ, pred)
 
         self.assertEqual(len(chains), 1)
-        self.assertEqual(chains[0], ['a', 'b'])
+        self.assertEqual(chains[0], ['b', 'a'])
 
     def test_three_task_chain(self):
-        """A -> B -> C should produce one chain."""
+        """C -> B -> A should produce one chain (dependent to dependency)."""
         tasks = [
             {'uuid': 'a', 'description': 'Task A'},
             {'uuid': 'b', 'description': 'Task B', 'depends': 'a'},
@@ -183,7 +194,7 @@ class TestCollapseChains(unittest.TestCase):
         chains = collapse_chains(uid_map, succ, pred)
 
         self.assertEqual(len(chains), 1)
-        self.assertEqual(chains[0], ['a', 'b', 'c'])
+        self.assertEqual(chains[0], ['c', 'b', 'a'])
 
     def test_branching_not_collapsed(self):
         """Branching should not be collapsed into single chain."""
@@ -197,8 +208,8 @@ class TestCollapseChains(unittest.TestCase):
 
         # Should have two separate chains from A
         self.assertEqual(len(chains), 2)
-        self.assertIn(['a', 'b'], chains)
-        self.assertIn(['a', 'c'], chains)
+        self.assertIn(['b', 'a'], chains)
+        self.assertIn(['c', 'a'], chains)
 
 
 class TestGenerateMermaid(unittest.TestCase):
@@ -210,7 +221,7 @@ class TestGenerateMermaid(unittest.TestCase):
         chains = []
         mermaid = generate_mermaid(uid_map, chains)
 
-        self.assertEqual(mermaid, 'flowchart TD')
+        self.assertEqual(mermaid, 'flowchart LR')
 
     def test_single_chain(self):
         """Single chain should produce one arrow."""
@@ -221,12 +232,12 @@ class TestGenerateMermaid(unittest.TestCase):
         chains = [['aaaa-1111', 'bbbb-2222']]
         mermaid = generate_mermaid(uid_map, chains)
 
-        self.assertIn('flowchart TD', mermaid)
+        self.assertIn('flowchart LR', mermaid)
         self.assertIn('Task A', mermaid)
         self.assertIn('Task B', mermaid)
         self.assertIn('-->', mermaid)
-        self.assertIn('(aaaa-11', mermaid)
-        self.assertIn('(bbbb-22', mermaid)
+        self.assertIn('t_aaaa1111', mermaid)
+        self.assertIn('t_bbbb2222', mermaid)
 
     def test_description_truncation(self):
         """Long descriptions should be truncated to 60 chars."""
@@ -345,7 +356,7 @@ class TestCreateTaskGraph(unittest.TestCase):
         mermaid = create_task_graph(tasks)
 
         self.assertIsInstance(mermaid, str)
-        self.assertIn('flowchart TD', mermaid)
+        self.assertIn('flowchart LR', mermaid)
         self.assertIn('Task A', mermaid)
         self.assertIn('Task B', mermaid)
 
@@ -389,7 +400,7 @@ class TestCreateTaskGraph(unittest.TestCase):
         mermaid = create_task_graph(tasks)
 
         # Should return content even without file output
-        self.assertIn('flowchart TD', mermaid)
+        self.assertIn('flowchart LR', mermaid)
 
 
 class TestReadTasksFromJSON(unittest.TestCase):

@@ -342,7 +342,7 @@ def graph(
     render: bool = typer.Option(
         True,
         "--render/--no-render",
-        help="Render Mermaid and open it"
+        help="Render Mermaid to SVG and open it in a browser"
     ),
     png: bool = typer.Option(
         False,
@@ -353,8 +353,8 @@ def graph(
     """
     Generate Mermaid flowchart of task dependencies.
 
-    Creates a Mermaid diagram showing task dependencies, optionally
-    renders it to SVG (or PNG), and opens the result.
+    Creates a Mermaid diagram showing task dependencies, renders it to SVG
+    by default (open in browser), or PNG with --png.
     """
     from pathlib import Path
     from .graph import get_tasks_from_taskwarrior, create_task_graph

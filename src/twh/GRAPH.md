@@ -109,6 +109,7 @@ Builds three core data structures from the task list:
 
 **Parameters:**
 - `tasks` (List[Dict]): List of task dictionaries
+- `reverse` (bool): When True, build edges from dependency to dependent
 
 **Returns:** Tuple of:
 - `uid_map` (Dict[str, Dict]): UUID → task dictionary
@@ -172,6 +173,7 @@ Main entry point that orchestrates the complete graph generation workflow.
 - `tasks` (List[Dict]): List of task dictionaries
 - `output_mmd` (Optional[Path]): Path to write Mermaid file (None = don't write)
 - `output_csv` (Optional[Path]): Path to write CSV file (None = don't write)
+- `reverse` (bool): When True, reverse edge direction (dependency to dependent)
 
 **Returns:** `str` - Mermaid flowchart content
 
@@ -201,13 +203,31 @@ Renders a Mermaid diagram to SVG.
 2. Launches headless Chrome browser
 3. Loads HTML page with Mermaid.js from CDN
 4. Waits for diagram rendering
-5. Calculates optimal viewport size
-6. Takes screenshot
-7. Saves as SVG
+5. Extracts SVG markup
+6. Saves as SVG
 
 **Requirements:**
 - pyppeteer package
 - Chromium (automatically downloaded by pyppeteer on first run)
+
+### PNG Rendering with Pyppeteer (Optional)
+
+#### `render_mermaid_to_png(mermaid_file, output_file)`
+
+Renders a Mermaid diagram to PNG.
+
+**Parameters:**
+- `mermaid_file` (Path): Input .mmd file
+- `output_file` (Path): Output .png file
+
+**Process:**
+1. Reads Mermaid file content
+2. Launches headless Chrome browser
+3. Loads HTML page with Mermaid.js from CDN
+4. Waits for diagram rendering
+5. Calculates optimal viewport size
+6. Takes screenshot
+7. Saves as PNG
 
 ### Cross-Platform File Opening
 
@@ -227,6 +247,10 @@ Opens a file in the default system viewer across different platforms.
 **Raises:**
 - `FileNotFoundError` - If file doesn't exist
 - `RuntimeError` - If opening fails
+
+#### `open_in_browser(file_path)`
+
+Opens a file in the default web browser across different platforms.
 
 ## CSV Export for Tana
 
@@ -263,7 +287,7 @@ twh graph
 # Generated CSV file: tasks.csv
 # Rendering to SVG: tasks.svg
 # Successfully rendered to: tasks.svg
-# [Image opens in default viewer]
+# [Browser opens the SVG file]
 ```
 
 ### Example 2: Custom Output
@@ -278,6 +302,7 @@ twh graph --output project-deps.mmd --csv project-tasks.csv
 # Generated CSV file: project-tasks.csv
 # Rendering to SVG: project-deps.svg
 # Successfully rendered to: project-deps.svg
+# [Browser opens the SVG file]
 ```
 
 ### Example 3: Mermaid Only
@@ -300,6 +325,13 @@ twh graph --no-render
 
 # Copy content and paste into:
 # https://mermaid.live/
+```
+
+### Example 5: Render to PNG
+
+```bash
+# Render to PNG and open in the default image viewer
+twh graph --png
 ```
 
 ## Mermaid Diagram Structure
@@ -455,6 +487,7 @@ twh list reverse
 twh graph
 twh graph reverse
 twh graph --output custom.mmd
+twh graph --png
 twh graph --no-render
 
 # Get help

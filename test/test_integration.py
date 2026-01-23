@@ -86,7 +86,7 @@ class TestGraphIntegration(unittest.TestCase):
 
             # Verify Mermaid content
             self.assertIsInstance(mermaid_content, str)
-            self.assertIn('flowchart TD', mermaid_content)
+            self.assertIn('flowchart LR', mermaid_content)
 
             # Verify key task descriptions appear
             # Note: chain collapsing may omit some intermediate nodes
@@ -188,7 +188,7 @@ class TestGraphIntegration(unittest.TestCase):
             )
 
             # Should produce minimal but valid Mermaid
-            self.assertEqual(mermaid_content, 'flowchart TD')
+            self.assertEqual(mermaid_content, 'flowchart LR')
 
             # Files should still be created
             self.assertTrue(mmd_path.exists())
@@ -212,7 +212,7 @@ class TestGraphIntegration(unittest.TestCase):
         mermaid_content = create_task_graph(tasks)
 
         # Should still return content
-        self.assertIn('flowchart TD', mermaid_content)
+        self.assertIn('flowchart LR', mermaid_content)
         self.assertIn('Task A', mermaid_content)
         self.assertIn('Task B', mermaid_content)
 

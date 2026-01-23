@@ -116,6 +116,8 @@ def build_dependency_graph(
     ----------
     tasks : List[Dict]
         List of task dictionaries.
+    reverse : bool
+        When True, build edges from dependency to dependent.
 
     Returns
     -------
@@ -228,7 +230,7 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
             # Clean description: remove newlines, limit length, escape quotes
             labels.append(sanitize_label(desc))
 
-        # Create arrow chain with short UUIDs
+        # Create arrow chain with stable node IDs and readable labels.
         mer = ' --> '.join([
             f'{node_id(chain[i])}["{labels[i]}"]'
             for i in range(len(chain))
@@ -280,6 +282,8 @@ def create_task_graph(
         Path to write Mermaid file. If None, no file is written.
     output_csv : Optional[Path]
         Path to write CSV file. If None, no file is written.
+    reverse : bool
+        When True, reverse edge direction (dependency to dependent).
 
     Returns
     -------
