@@ -223,6 +223,20 @@ class TestGenerateMermaid(unittest.TestCase):
 
         self.assertEqual(mermaid, 'flowchart LR')
 
+    def test_standalone_tasks(self):
+        """Standalone tasks should appear as nodes."""
+        uid_map = {
+            'a': {'description': 'Task A'},
+            'b': {'description': 'Task B'}
+        }
+        chains = []
+        mermaid = generate_mermaid(uid_map, chains)
+
+        self.assertIn('Task A', mermaid)
+        self.assertIn('Task B', mermaid)
+        self.assertIn('t_a', mermaid)
+        self.assertIn('t_b', mermaid)
+
     def test_single_chain(self):
         """Single chain should produce one arrow."""
         uid_map = {

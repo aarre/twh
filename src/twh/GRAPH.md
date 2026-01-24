@@ -374,6 +374,10 @@ base["Base Task"] --> t1["Task 1"]
 base["Base Task"] --> t2["Task 2"]
 ```
 
+### Standalone Tasks
+
+Tasks with no dependencies and no dependents are shown as unconnected nodes.
+
 ### Diamond Dependencies
 
 Complex dependencies (e.g., task D depends on both B and C):

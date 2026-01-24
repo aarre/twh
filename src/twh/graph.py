@@ -222,6 +222,7 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
         return f"t_{uuid.replace('-', '')}"
 
     lines = ['flowchart LR']
+    used = set()
 
     for chain in chains:
         labels = []
@@ -229,6 +230,7 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
             desc = uid_map[uuid].get('description', '')
             # Clean description: remove newlines, escape quotes/special chars.
             labels.append(sanitize_label(desc))
+            used.add(uuid)
 
         # Create arrow chain with stable node IDs and readable labels.
         mer = ' --> '.join([
@@ -236,6 +238,14 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
             for i in range(len(chain))
         ])
         lines.append('  ' + mer)
+
+    # Add standalone nodes for tasks without edges.
+    for uuid in uid_map:
+        if uuid in used:
+            continue
+        desc = uid_map[uuid].get('description', '')
+        label = sanitize_label(desc)
+        lines.append(f'  {node_id(uuid)}["{label}"]')
 
     return '\n'.join(lines)
 
