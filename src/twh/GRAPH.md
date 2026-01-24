@@ -1,6 +1,7 @@
 # Graph Module
 
 The `twh graph` command generates visual representations of Taskwarrior task dependencies using Mermaid flowcharts.
+It uses the same `task export` JSON parsing as `twh list` (shared helpers in `twh.taskwarrior`).
 
 ## Overview
 
@@ -85,7 +86,7 @@ Each task node shows:
 
 #### `get_tasks_from_taskwarrior()`
 
-Executes `task export` and returns a list of pending tasks.
+Executes `task export` and returns a list of pending tasks (shared JSON parsing).
 
 **Returns:** `List[Dict]` - List of task dictionaries
 

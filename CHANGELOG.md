@@ -3,10 +3,12 @@
 ### Features
 
 - **graph**: show all tasks (with or without dependencies or dependents) in `twh graph` views
+- **list/graph**: share Taskwarrior JSON export parsing helpers
 
 ### Fixes
 
 - **twh list**: fix hierarchical list formatting
+- **graph**: preserve edges for branching tasks with a single predecessor
 
 ## 0.4.0 (2026-01-23)
 

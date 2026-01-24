@@ -14,6 +14,8 @@ from typing import Dict, List, Set, Optional, Tuple
 
 import typer
 
+from .taskwarrior import get_tasks_from_taskwarrior, parse_dependencies
+
 
 def build_tree_prefix(ancestor_has_more: List[bool]) -> str:
     parts = []
@@ -55,31 +57,6 @@ def split_csv(value: Optional[str]) -> List[str]:
     if not value:
         return []
     return [item.strip() for item in value.split(",") if item.strip()]
-
-
-def _parse_taskwarrior_json(text: str) -> List[Dict]:
-    """
-    Parse taskwarrior JSON output that may be an array or line-delimited JSON.
-    """
-    try:
-        data = json.loads(text)
-        return data if isinstance(data, list) else [data]
-    except json.JSONDecodeError:
-        tasks: List[Dict] = []
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            tasks.append(json.loads(line))
-        return tasks
-
-
-def parse_dependencies(dep_field: Optional[str]) -> List[str]:
-    if not dep_field:
-        return []
-    if isinstance(dep_field, list):
-        return [str(value).strip() for value in dep_field if str(value).strip()]
-    return [item.strip() for item in str(dep_field).split(",") if item.strip()]
 
 
 def parse_task_timestamp(value: Optional[str]) -> Optional[datetime]:
@@ -240,7 +217,7 @@ def apply_task_color(line: str, task: Dict) -> str:
 
 def get_tasks() -> List[Dict]:
     """
-    Execute taskwarrior and return parsed task data.
+    Execute taskwarrior and return parsed task data using shared JSON parsing.
 
     Returns
     -------
@@ -253,20 +230,10 @@ def get_tasks() -> List[Dict]:
         If taskwarrior command fails or output cannot be parsed.
     """
     try:
-        result = subprocess.run(
-            ["task", "export"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        tasks = _parse_taskwarrior_json(result.stdout)
-        # Filter to pending tasks only
-        return [t for t in tasks if t.get("status") == "pending"]
-    except subprocess.CalledProcessError as e:
-        print(f"Error executing taskwarrior: {e}", file=sys.stderr)
+        return get_tasks_from_taskwarrior(status="pending")
+    except subprocess.CalledProcessError:
         sys.exit(1)
-    except json.JSONDecodeError as e:
-        print(f"Error parsing taskwarrior output: {e}", file=sys.stderr)
+    except json.JSONDecodeError:
         sys.exit(1)
 
 

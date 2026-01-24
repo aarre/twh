@@ -7,102 +7,13 @@ Mermaid flowcharts and CSV files for import into other systems (e.g., Tana).
 """
 
 import csv
-import json
-import subprocess
-import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional
 
-
-def _parse_taskwarrior_json(text: str) -> List[Dict]:
-    """
-    Parse taskwarrior JSON output that may be an array or line-delimited JSON.
-    """
-    try:
-        data = json.loads(text)
-        return data if isinstance(data, list) else [data]
-    except json.JSONDecodeError:
-        tasks: List[Dict] = []
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            tasks.append(json.loads(line))
-        return tasks
+from .taskwarrior import get_tasks_from_taskwarrior, read_tasks_from_json, parse_dependencies
 
 
-def get_tasks_from_taskwarrior() -> List[Dict]:
-    """
-    Execute taskwarrior and return parsed task data.
-
-    Returns
-    -------
-    List[Dict]
-        List of pending tasks as dictionaries.
-
-    Raises
-    ------
-    subprocess.CalledProcessError
-        If taskwarrior command fails.
-    json.JSONDecodeError
-        If taskwarrior output cannot be parsed.
-    """
-    try:
-        result = subprocess.run(
-            ["task", "export"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        tasks = _parse_taskwarrior_json(result.stdout)
-        # Filter to pending tasks only
-        return [t for t in tasks if t.get("status") == "pending"]
-    except subprocess.CalledProcessError as e:
-        print(f"Error executing taskwarrior: {e}", file=sys.stderr)
-        raise
-    except json.JSONDecodeError as e:
-        print(f"Error parsing taskwarrior output: {e}", file=sys.stderr)
-        raise
-
-
-def read_tasks_from_json(json_data: str) -> List[Dict]:
-    """
-    Parse tasks from JSON string.
-
-    Parameters
-    ----------
-    json_data : str
-        JSON string containing task data.
-
-    Returns
-    -------
-    List[Dict]
-        List of tasks as dictionaries.
-    """
-    return _parse_taskwarrior_json(json_data)
-
-
-def parse_dependencies(dep_field: Optional[str]) -> List[str]:
-    """
-    Parse the dependencies field from a task.
-
-    Parameters
-    ----------
-    dep_field : Optional[str]
-        The 'depends' field from a task, which can be a comma-separated
-        string of UUIDs or None.
-
-    Returns
-    -------
-    List[str]
-        List of dependency UUIDs.
-    """
-    if not dep_field:
-        return []
-    if isinstance(dep_field, list):
-        return dep_field
-    return [x.strip() for x in str(dep_field).split(',') if x.strip()]
 
 
 def build_dependency_graph(
@@ -155,6 +66,7 @@ def collapse_chains(uid_map: Dict[str, Dict], succ: Dict[str, Set[str]],
 
     A chain is a sequence of tasks where each task (except the first and last)
     has exactly one predecessor and one successor.
+    Branch points always emit edges so dependencies are never dropped.
 
     Parameters
     ----------
@@ -174,7 +86,10 @@ def collapse_chains(uid_map: Dict[str, Dict], succ: Dict[str, Set[str]],
     edges = []
 
     for u in uid_map:
-        if len(pred[u]) != 1:
+        if not succ.get(u):
+            continue
+        is_middle = len(pred[u]) == 1 and len(succ[u]) == 1
+        if not is_middle:
             for s in succ.get(u, []):
                 if (u, s) in visited:
                     continue
@@ -184,11 +99,12 @@ def collapse_chains(uid_map: Dict[str, Dict], succ: Dict[str, Set[str]],
                     chain.append(cur)
                     visited.add((chain[-2], cur))
                     if len(pred[cur]) == 1 and len(succ[cur]) == 1:
-                        cur = next(iter(succ[cur]))
-                        if (chain[-1], cur) in visited:
+                        nxt = next(iter(succ[cur]))
+                        if (chain[-1], nxt) in visited:
                             break
-                    else:
-                        break
+                        cur = nxt
+                        continue
+                    break
                 edges.append(chain)
 
     return edges

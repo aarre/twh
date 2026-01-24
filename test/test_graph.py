@@ -211,6 +211,21 @@ class TestCollapseChains(unittest.TestCase):
         self.assertIn(['b', 'a'], chains)
         self.assertIn(['c', 'a'], chains)
 
+    def test_branch_with_single_predecessor_keeps_edges(self):
+        """Branching node with one predecessor should still emit edges."""
+        tasks = [
+            {'uuid': 'a', 'description': 'Parent', 'depends': 'b,c'},
+            {'uuid': 'b', 'description': 'Child B'},
+            {'uuid': 'c', 'description': 'Child C'},
+            {'uuid': 'd', 'description': 'Upstream', 'depends': 'a'}
+        ]
+        uid_map, succ, pred = build_dependency_graph(tasks)
+        chains = collapse_chains(uid_map, succ, pred)
+
+        self.assertIn(['d', 'a'], chains)
+        self.assertIn(['a', 'b'], chains)
+        self.assertIn(['a', 'c'], chains)
+
 
 class TestGenerateMermaid(unittest.TestCase):
     """Test Mermaid generation."""
