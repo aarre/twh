@@ -1,15 +1,22 @@
+## 0.6.0 (2026-01-23)
+
+### Features
+
+- **graph**: color graph nodes by status
+
+### Fixes
+
+- **graph**: fix orphan tasks in graph view
+
 ## 0.5.0 (2026-01-23)
 
 ### Features
 
 - **graph**: show all tasks (with or without dependencies or dependents) in `twh graph` views
-- **list/graph**: share Taskwarrior JSON export parsing helpers
-- **graph**: add task ID badges and status-based node colors (started/blocked)
 
 ### Fixes
 
 - **twh list**: fix hierarchical list formatting
-- **graph**: preserve edges for branching tasks with a single predecessor
 
 ## 0.4.0 (2026-01-23)
 
