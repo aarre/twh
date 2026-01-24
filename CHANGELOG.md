@@ -3,6 +3,8 @@
 ### Features
 
 - **graph**: color graph nodes by status
+- **graph**: add task ID badges and due dates in node labels
+- **graph**: add urgency-based magma gradient for node colors
 
 ### Fixes
 

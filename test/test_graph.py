@@ -264,6 +264,16 @@ class TestGenerateMermaid(unittest.TestCase):
         self.assertIn('ID: 12', mermaid)
         self.assertIn('ID: 7', mermaid)
 
+    def test_due_date_in_labels(self):
+        """Due dates should appear in node labels."""
+        uid_map = {
+            'a': {'description': 'Task A', 'id': 1, 'due': '20260201T000000Z'}
+        }
+        chains = [['a']]
+        mermaid = generate_mermaid(uid_map, chains)
+
+        self.assertIn('Due: 2026-02-01', mermaid)
+
     def test_started_and_blocked_classes(self):
         """Started and blocked tasks should be styled via classes."""
         uid_map = {
@@ -276,6 +286,25 @@ class TestGenerateMermaid(unittest.TestCase):
 
         self.assertIn('class t_b blocked', mermaid)
         self.assertIn('class t_c started', mermaid)
+
+    def test_id_badge_flush_corner(self):
+        """ID badge should be positioned at the lower-left corner."""
+        uid_map = {'a': {'description': 'Task A', 'id': 1}}
+        mermaid = generate_mermaid(uid_map, [['a']])
+
+        self.assertIn('.twh-id{position:absolute;left:0;bottom:0', mermaid)
+
+    def test_priority_gradient_colors(self):
+        """Priority colors should grade from white to a magma hue."""
+        uid_map = {
+            'a': {'description': 'Low', 'id': 1, 'urgency': 1.0},
+            'b': {'description': 'High', 'id': 2, 'urgency': 10.0},
+        }
+        mermaid = generate_mermaid(uid_map, [['a'], ['b']])
+
+        self.assertIn('style t_a fill:#ffffff', mermaid)
+        self.assertIn('style t_b fill:#', mermaid)
+        self.assertNotIn('style t_b fill:#ffffff', mermaid)
 
     def test_single_chain(self):
         """Single chain should produce one arrow."""

@@ -349,7 +349,8 @@ flowchart LR
 
 Each node contains:
 - Task description
-- Task ID (shown as a small badge in the lower-left portion of the node)
+- Task ID (shown as a badge flush with the lower-left corner of the node)
+- Due date (if present, shown under the description)
 
 Example: `"Setup dev environment"` with `ID: 12` badge.
 
@@ -359,6 +360,9 @@ HTML labels are enabled for this layout.
 
 - **Started tasks** (`start` set) render with green boxes.
 - **Blocked tasks** (dependencies on other pending tasks) render with gray boxes.
+- **Other tasks** render with a low-saturation magma gradient based on urgency
+  (Taskwarrior `urgency`), falling back to priority (H/M/L) when urgency is missing.
+  The lowest priority values are rendered as white.
 
 ### Edge Format
 
