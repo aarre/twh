@@ -1,3 +1,12 @@
+## 0.4.0 (2026-01-23)
+
+### Features
+
+- **list**: use taskwarrior formatting in list output
+- **graph**: default to svg output instead of png
+- **graph**: enable `twh graph` and `twh graph reverse` commands, including rendering to svg by default
+- **graph**: twh graph works for the first time
+
 ## 0.3.0 (2026-01-23)
 
 ### Features
@@ -30,4 +39,4 @@
 - **gitignore**: ignore .sley
 - **pyproject**: fix commitizen configuration
 - **pyproject**: add pytest dependency
-- **reverse**: fix bug where task with multiple dependents only shown once in list reverse
+- **reverse**: fix bug where task with multiple dependents only shown once in --reverse
