@@ -5,12 +5,163 @@ Hierarchical view of Taskwarrior tasks by dependency.
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from collections import defaultdict
 from typing import Dict, List, Set, Optional
 
 import typer
+
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def strip_ansi(text: str) -> str:
+    return ANSI_ESCAPE_RE.sub("", text)
+
+
+def insert_at_visible_index(text: str, index: int, insert: str) -> str:
+    if index is None or index < 0 or not insert:
+        return text
+    out = []
+    visible = 0
+    i = 0
+    inserted = False
+    while i < len(text):
+        if text[i] == "\x1b" and i + 1 < len(text) and text[i + 1] == "[":
+            end = text.find("m", i + 2)
+            if end != -1:
+                out.append(text[i:end + 1])
+                i = end + 1
+                continue
+        if not inserted and visible == index:
+            out.append(insert)
+            inserted = True
+        out.append(text[i])
+        visible += 1
+        i += 1
+    if not inserted:
+        out.append(insert)
+    return "".join(out)
+
+
+def get_taskwarrior_report_lines(tasks: List[Dict]) -> tuple[Dict[int, str], list[str], list[str], Optional[int]]:
+    """
+    Fetch Taskwarrior list output for pending tasks and map task IDs to lines.
+    """
+    task_ids = {t.get("id") for t in tasks if isinstance(t.get("id"), int)}
+    report = "list"
+    try:
+        default_cmd = subprocess.run(
+            ["task", "_get", "default.command"],
+            capture_output=True,
+            text=True,
+            check=True
+        ).stdout.strip()
+        if default_cmd:
+            report = default_cmd.split()[0]
+    except subprocess.CalledProcessError:
+        pass
+
+    def run_report(report_name: str) -> Optional[subprocess.CompletedProcess]:
+        try:
+            return subprocess.run(
+                ["task", "rc.color=on", f"rc.report.{report_name}.filter=status:pending", report_name],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+        except subprocess.CalledProcessError:
+            return None
+
+    result = run_report(report)
+    if result is None and report != "list":
+        result = run_report("list")
+    if result is None:
+        return {}, [], [], None
+
+    header_lines: list[str] = []
+    footer_lines: list[str] = []
+    task_lines: Dict[int, str] = {}
+    seen_task = False
+
+    for line in result.stdout.splitlines():
+        plain = strip_ansi(line).strip()
+        if not plain:
+            if seen_task:
+                footer_lines.append(line)
+            else:
+                header_lines.append(line)
+            continue
+
+        first = plain.split()[0]
+        if first.isdigit() and int(first) in task_ids:
+            seen_task = True
+            task_lines[int(first)] = line
+        else:
+            if seen_task:
+                footer_lines.append(line)
+            else:
+                header_lines.append(line)
+
+    desc_col = None
+    for line in header_lines:
+        plain = strip_ansi(line)
+        idx = plain.lower().find("description")
+        if idx != -1:
+            desc_col = idx
+            break
+
+    if not task_lines and report != "list":
+        result = run_report("list")
+        if result is None:
+            return {}, [], [], None
+        header_lines = []
+        footer_lines = []
+        task_lines = {}
+        seen_task = False
+        for line in result.stdout.splitlines():
+            plain = strip_ansi(line).strip()
+            if not plain:
+                if seen_task:
+                    footer_lines.append(line)
+                else:
+                    header_lines.append(line)
+                continue
+            first = plain.split()[0]
+            if first.isdigit() and int(first) in task_ids:
+                seen_task = True
+                task_lines[int(first)] = line
+            else:
+                if seen_task:
+                    footer_lines.append(line)
+                else:
+                    header_lines.append(line)
+        desc_col = None
+        for line in header_lines:
+            plain = strip_ansi(line)
+            idx = plain.lower().find("description")
+            if idx != -1:
+                desc_col = idx
+                break
+
+    return task_lines, header_lines, footer_lines, desc_col
+
+
+def format_task_line(task: Dict, level: int, indent: str,
+                     line_map: Optional[Dict[int, str]] = None,
+                     desc_col: Optional[int] = None) -> str:
+    """
+    Format a task line with optional Taskwarrior styling and indentation.
+    """
+    prefix = indent * level
+    task_id = task.get("id")
+    if line_map and task_id in line_map:
+        line = line_map[task_id]
+        if desc_col is None:
+            return f"{prefix}{line}"
+        return insert_at_visible_index(line, desc_col, prefix)
+    return f"{prefix}{format_task(task)}"
 
 
 def get_tasks() -> List[Dict]:
@@ -97,7 +248,10 @@ def format_task(task: Dict) -> str:
 
 
 def print_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]],
-                     depended_by: Dict[str, Set[str]], indent: str = "  "):
+                     depended_by: Dict[str, Set[str]], indent: str = "  ",
+                     line_map: Optional[Dict[int, str]] = None,
+                     desc_col: Optional[int] = None,
+                     blank_line_between_top_level: bool = True):
     """
     Print dependency list with unblocked tasks at top level.
 
@@ -114,6 +268,12 @@ def print_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]]
         Mapping from UUID to set of UUIDs that depend on this task.
     indent : str, optional
         Indentation string for each level (default: "  ").
+    line_map : Optional[Dict[int, str]]
+        Optional mapping of task ID to Taskwarrior-formatted line.
+    desc_col : Optional[int]
+        Visible column index where the description starts.
+    blank_line_between_top_level : bool
+        Whether to print a blank line between top-level tasks.
     """
     visited = set()
 
@@ -128,7 +288,7 @@ def print_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]]
 
         visited.add(uuid)
         task = task_map[uuid]
-        print(f"{indent * level}{format_task(task)}")
+        print(format_task_line(task, level, indent, line_map, desc_col))
 
         # Print dependencies (tasks this one depends on)
         deps = depends_on.get(uuid, [])
@@ -150,7 +310,8 @@ def print_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]]
 
     for uuid in top_level:
         print_task_and_deps(uuid)
-        print()  # Blank line between top-level tasks
+        if blank_line_between_top_level:
+            print()  # Blank line between top-level tasks
 
     # Handle orphaned tasks (e.g., circular dependencies)
     # These are tasks that weren't visited because they're in dependency cycles
@@ -159,11 +320,15 @@ def print_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]]
         orphaned.sort(key=lambda u: task_map[u].get("urgency", 0), reverse=True)
         for uuid in orphaned:
             print_task_and_deps(uuid)
-            print()
+            if blank_line_between_top_level:
+                print()
 
 
 def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]],
-                      depended_by: Dict[str, Set[str]], indent: str = "  "):
+                      depended_by: Dict[str, Set[str]], indent: str = "  ",
+                      line_map: Optional[Dict[int, str]] = None,
+                      desc_col: Optional[int] = None,
+                      blank_line_between_top_level: bool = True):
     """
     Print dependency list with blocking tasks at top level.
 
@@ -180,6 +345,12 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
         Mapping from UUID to set of UUIDs that depend on this task.
     indent : str, optional
         Indentation string for each level (default: "  ").
+    line_map : Optional[Dict[int, str]]
+        Optional mapping of task ID to Taskwarrior-formatted line.
+    desc_col : Optional[int]
+        Visible column index where the description starts.
+    blank_line_between_top_level : bool
+        Whether to print a blank line between top-level tasks.
     """
 
     def print_task_and_dependents(uuid: str, level: int = 0, ancestors: Set[str] = None):
@@ -196,7 +367,7 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
             return
 
         task = task_map[uuid]
-        print(f"{indent * level}{format_task(task)}")
+        print(format_task_line(task, level, indent, line_map, desc_col))
 
         # Print dependents (tasks that depend on this one)
         dependents = depended_by.get(uuid, [])
@@ -221,7 +392,8 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
 
     for uuid in bottom_level:
         print_task_and_dependents(uuid)
-        print()  # Blank line between top-level tasks
+        if blank_line_between_top_level:
+            print()  # Blank line between top-level tasks
 
     # Handle orphaned tasks (e.g., circular dependencies)
     # These are tasks that have dependencies but those dependencies form cycles,
@@ -248,7 +420,8 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
         orphaned.sort(key=lambda u: task_map[u].get("urgency", 0), reverse=True)
         for uuid in orphaned:
             print_task_and_dependents(uuid)
-            print()
+            if blank_line_between_top_level:
+                print()
 
 
 app = typer.Typer(help="Hierarchical views of Taskwarrior tasks")
@@ -270,8 +443,8 @@ def list_tasks(
     """
     Display Taskwarrior tasks in hierarchical dependency list view.
 
-    This is the default command that shows tasks organized by their
-    dependencies.
+    Uses Taskwarrior's default list formatting and colors, while
+    preserving the hierarchy.
     """
     tasks = get_tasks()
 
@@ -280,16 +453,41 @@ def list_tasks(
         return
 
     task_map, depends_on, depended_by = build_dependency_graph(tasks)
+    line_map, header_lines, footer_lines, desc_col = get_taskwarrior_report_lines(tasks)
 
     if mode:
         if mode != "reverse":
             raise typer.BadParameter("Only 'reverse' is supported as a mode.")
         reverse = True
 
+    use_taskwarrior_lines = bool(line_map)
+
+    if use_taskwarrior_lines and header_lines:
+        for line in header_lines:
+            print(line)
+
     if reverse:
-        print_tree_reverse(task_map, depends_on, depended_by)
+        print_tree_reverse(
+            task_map,
+            depends_on,
+            depended_by,
+            line_map=line_map,
+            desc_col=desc_col,
+            blank_line_between_top_level=not use_taskwarrior_lines
+        )
     else:
-        print_tree_normal(task_map, depends_on, depended_by)
+        print_tree_normal(
+            task_map,
+            depends_on,
+            depended_by,
+            line_map=line_map,
+            desc_col=desc_col,
+            blank_line_between_top_level=not use_taskwarrior_lines
+        )
+
+    if use_taskwarrior_lines and footer_lines:
+        for line in footer_lines:
+            print(line)
 
 
 @app.command("reverse")

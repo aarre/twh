@@ -216,7 +216,7 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
         text = text.replace('\\', '\\\\')
         text = text.replace('<', '&lt;').replace('>', '&gt;')
         text = text.replace('[', '(').replace(']', ')')
-        return text[:60]
+        return text
 
     def node_id(uuid: str) -> str:
         return f"t_{uuid.replace('-', '')}"
@@ -227,7 +227,7 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
         labels = []
         for uuid in chain:
             desc = uid_map[uuid].get('description', '')
-            # Clean description: remove newlines, limit length, escape quotes
+            # Clean description: remove newlines, escape quotes/special chars.
             labels.append(sanitize_label(desc))
 
         # Create arrow chain with stable node IDs and readable labels.

@@ -239,8 +239,8 @@ class TestGenerateMermaid(unittest.TestCase):
         self.assertIn('t_aaaa1111', mermaid)
         self.assertIn('t_bbbb2222', mermaid)
 
-    def test_description_truncation(self):
-        """Long descriptions should be truncated to 60 chars."""
+    def test_description_preserved(self):
+        """Long descriptions should be preserved in full."""
         long_desc = 'A' * 100
         uid_map = {
             'aaaa-1111': {'description': long_desc},
@@ -249,10 +249,8 @@ class TestGenerateMermaid(unittest.TestCase):
         chains = [['aaaa-1111', 'bbbb-2222']]
         mermaid = generate_mermaid(uid_map, chains)
 
-        # Should contain truncated version (60 chars)
-        self.assertIn('A' * 60, mermaid)
-        # Should not contain full description
-        self.assertNotIn('A' * 61, mermaid)
+        # Should contain full description
+        self.assertIn(long_desc, mermaid)
 
     def test_quote_escaping(self):
         """Quotes in descriptions should be removed."""

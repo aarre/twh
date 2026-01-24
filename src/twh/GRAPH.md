@@ -72,13 +72,12 @@ This reduces visual clutter while preserving dependency information.
 
 Task descriptions are automatically cleaned for display:
 - Newlines are replaced with spaces
-- Descriptions are truncated to 60 characters
 - Quotes are removed to avoid Mermaid syntax errors
 
 ### Node Labels
 
 Each task node shows:
-- The task description (truncated if needed)
+- The task description
 
 ## Architecture
 
@@ -393,7 +392,7 @@ Comprehensive test suite in `test/test_graph.py`:
 - **Dependency Parsing**: Handles None, empty strings, single/multiple deps, whitespace
 - **Graph Building**: Empty tasks, single tasks, chains, diamonds, missing deps
 - **Chain Collapsing**: Independent tasks, simple chains, long chains, branching
-- **Mermaid Generation**: Empty graphs, single chains, description truncation, escaping
+- **Mermaid Generation**: Empty graphs, single chains, description cleaning, escaping
 - **CSV Export**: Basic export, dependencies, tags, all fields
 - **Complete Workflow**: File writing, content verification
 
