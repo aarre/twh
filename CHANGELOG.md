@@ -2,10 +2,15 @@
 
 ### Features
 
-- **list**: use taskwarrior formatting in list output
+- **list**: custom JSON-based list formatting with tree connectors and aligned columns
 - **graph**: default to svg output instead of png
 - **graph**: enable `twh graph` and `twh graph reverse` commands, including rendering to svg by default
+- **graph**: default graph outputs to `/tmp` instead of the current working directory
 - **graph**: twh graph works for the first time
+
+### Fixes
+
+- **list**: format output directly from Taskwarrior JSON export to avoid concatenated lines
 
 ## 0.3.0 (2026-01-23)
 

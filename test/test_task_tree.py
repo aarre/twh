@@ -10,14 +10,29 @@ Tests cover:
 - Task visibility: ensuring all pending tasks appear in output
 """
 
+import json
 import sys
 import unittest
 from io import StringIO
 from collections import defaultdict
 from typing import Dict, List, Set
+from unittest.mock import patch
+import subprocess
 
 # Import from installed package
 from twh import build_dependency_graph, print_tree_normal, print_tree_reverse, format_task
+from twh import build_task_table_lines, get_tasks
+
+
+def get_depth(line: str) -> int:
+    depth = 0
+    idx = 0
+    while line.startswith("|  ", idx) or line.startswith("   ", idx):
+        depth += 1
+        idx += 3
+    if line.startswith("+- ", idx):
+        return depth
+    return 0
 
 
 class TestBuildDependencyGraph(unittest.TestCase):
@@ -145,7 +160,7 @@ class TestNormalModeHierarchy(unittest.TestCase):
 
         lines = [l for l in output.split('\n') if '[1]' in l]
         self.assertEqual(len(lines), 1)
-        self.assertFalse(lines[0].startswith('  '))  # No indentation
+        self.assertEqual(get_depth(lines[0]), 0)  # No indentation
 
     def test_blocked_task_indented(self):
         """Blocked tasks should be indented under their dependents."""
@@ -164,7 +179,7 @@ class TestNormalModeHierarchy(unittest.TestCase):
         # Task 1 (blocking) should appear indented under task 2
         self.assertLess(task2_line, task1_line)
         # Task 1 should be indented under task 2
-        self.assertTrue(lines[task1_line].startswith('  '))
+        self.assertEqual(get_depth(lines[task1_line]), 1)
 
     def test_dependency_chain_indentation(self):
         """Test C->B->A shows correct indentation levels."""
@@ -182,9 +197,9 @@ class TestNormalModeHierarchy(unittest.TestCase):
         task3_line = next(l for l in lines if '[3]' in l)
 
         # C at level 0, B at level 1, A at level 2
-        self.assertEqual(len(task3_line) - len(task3_line.lstrip()), 0)
-        self.assertEqual(len(task2_line) - len(task2_line.lstrip()), 2)
-        self.assertEqual(len(task1_line) - len(task1_line.lstrip()), 4)
+        self.assertEqual(get_depth(task3_line), 0)
+        self.assertEqual(get_depth(task2_line), 1)
+        self.assertEqual(get_depth(task1_line), 2)
 
     def test_completed_dependency_not_shown(self):
         """Tasks with completed dependencies should appear at top level."""
@@ -198,7 +213,7 @@ class TestNormalModeHierarchy(unittest.TestCase):
         # Task 2 should appear at top level (no indentation)
         lines = [l for l in output.split('\n') if '[2]' in l]
         self.assertEqual(len(lines), 1)
-        self.assertFalse(lines[0].startswith('  '))
+        self.assertEqual(get_depth(lines[0]), 0)
 
     def test_multiple_top_level_tasks(self):
         """Multiple unrelated tasks should all appear at top level."""
@@ -294,7 +309,7 @@ class TestReverseModeHierarchy(unittest.TestCase):
 
         # Task 1 should be at top level (no indentation)
         self.assertEqual(len(task1_lines), 1)
-        self.assertFalse(task1_lines[0].startswith('  '))
+        self.assertEqual(get_depth(task1_lines[0]), 0)
 
     def test_dependent_task_indented(self):
         """In reverse mode, dependent tasks should be indented."""
@@ -310,7 +325,7 @@ class TestReverseModeHierarchy(unittest.TestCase):
 
         # Task 2 should be indented
         self.assertEqual(len(task2_lines), 1)
-        self.assertTrue(task2_lines[0].startswith('  '))
+        self.assertEqual(get_depth(task2_lines[0]), 1)
 
     def test_reverse_chain_indentation(self):
         """Test A->B->C in reverse shows A at 0, B at 1, C at 2."""
@@ -328,9 +343,9 @@ class TestReverseModeHierarchy(unittest.TestCase):
         task3_line = next(l for l in lines if '[3]' in l)
 
         # A at level 0, B at level 1, C at level 2
-        self.assertEqual(len(task1_line) - len(task1_line.lstrip()), 0)
-        self.assertEqual(len(task2_line) - len(task2_line.lstrip()), 2)
-        self.assertEqual(len(task3_line) - len(task3_line.lstrip()), 4)
+        self.assertEqual(get_depth(task1_line), 0)
+        self.assertEqual(get_depth(task2_line), 1)
+        self.assertEqual(get_depth(task3_line), 2)
 
     def test_completed_dependency_at_top(self):
         """Tasks depending only on completed tasks should appear at top."""
@@ -344,7 +359,7 @@ class TestReverseModeHierarchy(unittest.TestCase):
         # Task 2 should appear at top level (no indentation)
         lines = [l for l in output.split('\n') if '[2]' in l]
         self.assertEqual(len(lines), 1)
-        self.assertFalse(lines[0].startswith('  '))
+        self.assertEqual(get_depth(lines[0]), 0)
 
     def test_task_with_two_dependencies_appears_under_both(self):
         """Task 30 depends on both 28 and 29, so should appear under both in reverse view."""
@@ -367,7 +382,7 @@ class TestReverseModeHierarchy(unittest.TestCase):
 
         # Both occurrences should be indented (under their respective dependencies)
         for line_idx in task30_lines:
-            self.assertTrue(lines[line_idx].startswith('  '),
+            self.assertEqual(get_depth(lines[line_idx]), 1,
                           f"Task 30 should be indented under its dependency")
 
         # Find task 28 and 29 positions
@@ -532,6 +547,54 @@ class TestFormatTask(unittest.TestCase):
         task = {"id": 1, "urgency": 5.5}
         formatted = format_task(task)
         self.assertEqual(formatted, "[1]  (urgency: 5.5)")
+
+
+class TestTaskwarriorJsonParsing(unittest.TestCase):
+    """Test JSON parsing for Taskwarrior export output."""
+
+    def test_get_tasks_parses_json_array(self):
+        payload = [
+            {"uuid": "a", "id": 1, "description": "Task A", "status": "pending"},
+            {"uuid": "b", "id": 2, "description": "Task B", "status": "completed"},
+        ]
+        stdout = json.dumps(payload)
+
+        def fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(args[0], 0, stdout=stdout, stderr="")
+
+        with patch("twh.__init__.subprocess.run", side_effect=fake_run):
+            tasks = get_tasks()
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["id"], 1)
+
+
+class TestTaskTableRendering(unittest.TestCase):
+    """Test table rendering for hierarchical list output."""
+
+    def test_table_lines_do_not_merge_descriptions(self):
+        tasks = [
+            {"uuid": "a", "id": 1, "description": "Deliver plastics draft 1.0"},
+            {"uuid": "b", "id": 2, "description": "Shower and change"},
+            {"uuid": "c", "id": 3,
+             "description": "For IDB name change, call human resources at 202-623-3500"},
+        ]
+
+        lines = build_task_table_lines(
+            tasks,
+            columns=["description", "id"],
+            labels=["Description", "ID"]
+        )
+        data_lines = lines[2:]
+        self.assertEqual(len(data_lines), 3)
+
+        for desc in [t["description"] for t in tasks]:
+            self.assertEqual(sum(desc in line for line in data_lines), 1)
+
+        header = lines[0]
+        id_index = header.index("ID")
+        for line in data_lines:
+            self.assertTrue(line[id_index:id_index + 2].strip().isdigit())
 
 
 if __name__ == '__main__':

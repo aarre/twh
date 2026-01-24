@@ -3,165 +3,239 @@
 Hierarchical view of Taskwarrior tasks by dependency.
 """
 
-import argparse
 import json
-import re
+import tempfile
 import subprocess
 import sys
 from collections import defaultdict
-from typing import Dict, List, Set, Optional
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Set, Optional, Tuple
 
 import typer
 
-ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+def build_tree_prefix(ancestor_has_more: List[bool]) -> str:
+    parts = []
+    for has_more in ancestor_has_more:
+        parts.append("|  " if has_more else "   ")
+    parts.append("+- ")
+    return "".join(parts)
 
 
-def strip_ansi(text: str) -> str:
-    return ANSI_ESCAPE_RE.sub("", text)
-
-
-def insert_at_visible_index(text: str, index: int, insert: str) -> str:
-    if index is None or index < 0 or not insert:
-        return text
-    out = []
-    visible = 0
-    i = 0
-    inserted = False
-    while i < len(text):
-        if text[i] == "\x1b" and i + 1 < len(text) and text[i + 1] == "[":
-            end = text.find("m", i + 2)
-            if end != -1:
-                out.append(text[i:end + 1])
-                i = end + 1
-                continue
-        if not inserted and visible == index:
-            out.append(insert)
-            inserted = True
-        out.append(text[i])
-        visible += 1
-        i += 1
-    if not inserted:
-        out.append(insert)
-    return "".join(out)
-
-
-def get_taskwarrior_report_lines(tasks: List[Dict]) -> tuple[Dict[int, str], list[str], list[str], Optional[int]]:
-    """
-    Fetch Taskwarrior list output for pending tasks and map task IDs to lines.
-    """
-    task_ids = {t.get("id") for t in tasks if isinstance(t.get("id"), int)}
-    report = "list"
+def get_taskwarrior_setting(key: str) -> Optional[str]:
     try:
-        default_cmd = subprocess.run(
-            ["task", "_get", "default.command"],
+        result = subprocess.run(
+            ["task", "_get", key],
             capture_output=True,
             text=True,
             check=True
-        ).stdout.strip()
-        if default_cmd:
-            report = default_cmd.split()[0]
+        )
     except subprocess.CalledProcessError:
-        pass
+        return None
+    value = result.stdout.strip()
+    return value if value else None
 
-    def run_report(report_name: str) -> Optional[subprocess.CompletedProcess]:
-        try:
-            return subprocess.run(
-                ["task", "rc.color=on", f"rc.report.{report_name}.filter=status:pending", report_name],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-        except subprocess.CalledProcessError:
-            return None
 
-    result = run_report(report)
-    if result is None and report != "list":
-        result = run_report("list")
-    if result is None:
-        return {}, [], [], None
+def get_graph_output_dir() -> Path:
+    """
+    Return the directory for default graph outputs, preferring /tmp.
+    """
+    tmp_dir = Path("/tmp")
+    if tmp_dir.is_dir():
+        return tmp_dir
+    try:
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        return tmp_dir
+    except OSError:
+        return Path(tempfile.gettempdir())
 
-    header_lines: list[str] = []
-    footer_lines: list[str] = []
-    task_lines: Dict[int, str] = {}
-    seen_task = False
 
-    for line in result.stdout.splitlines():
-        plain = strip_ansi(line).strip()
-        if not plain:
-            if seen_task:
-                footer_lines.append(line)
-            else:
-                header_lines.append(line)
-            continue
+def split_csv(value: Optional[str]) -> List[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
 
-        first = plain.split()[0]
-        if first.isdigit() and int(first) in task_ids:
-            seen_task = True
-            task_lines[int(first)] = line
-        else:
-            if seen_task:
-                footer_lines.append(line)
-            else:
-                header_lines.append(line)
 
-    desc_col = None
-    for line in header_lines:
-        plain = strip_ansi(line)
-        idx = plain.lower().find("description")
-        if idx != -1:
-            desc_col = idx
-            break
-
-    if not task_lines and report != "list":
-        result = run_report("list")
-        if result is None:
-            return {}, [], [], None
-        header_lines = []
-        footer_lines = []
-        task_lines = {}
-        seen_task = False
-        for line in result.stdout.splitlines():
-            plain = strip_ansi(line).strip()
-            if not plain:
-                if seen_task:
-                    footer_lines.append(line)
-                else:
-                    header_lines.append(line)
+def _parse_taskwarrior_json(text: str) -> List[Dict]:
+    """
+    Parse taskwarrior JSON output that may be an array or line-delimited JSON.
+    """
+    try:
+        data = json.loads(text)
+        return data if isinstance(data, list) else [data]
+    except json.JSONDecodeError:
+        tasks: List[Dict] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
                 continue
-            first = plain.split()[0]
-            if first.isdigit() and int(first) in task_ids:
-                seen_task = True
-                task_lines[int(first)] = line
-            else:
-                if seen_task:
-                    footer_lines.append(line)
-                else:
-                    header_lines.append(line)
-        desc_col = None
-        for line in header_lines:
-            plain = strip_ansi(line)
-            idx = plain.lower().find("description")
-            if idx != -1:
-                desc_col = idx
-                break
-
-    return task_lines, header_lines, footer_lines, desc_col
+            tasks.append(json.loads(line))
+        return tasks
 
 
-def format_task_line(task: Dict, level: int, indent: str,
-                     line_map: Optional[Dict[int, str]] = None,
-                     desc_col: Optional[int] = None) -> str:
-    """
-    Format a task line with optional Taskwarrior styling and indentation.
-    """
-    prefix = indent * level
-    task_id = task.get("id")
-    if line_map and task_id in line_map:
-        line = line_map[task_id]
-        if desc_col is None:
-            return f"{prefix}{line}"
-        return insert_at_visible_index(line, desc_col, prefix)
-    return f"{prefix}{format_task(task)}"
+def parse_dependencies(dep_field: Optional[str]) -> List[str]:
+    if not dep_field:
+        return []
+    if isinstance(dep_field, list):
+        return [str(value).strip() for value in dep_field if str(value).strip()]
+    return [item.strip() for item in str(dep_field).split(",") if item.strip()]
+
+
+def parse_task_timestamp(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        if value.endswith("Z"):
+            return datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        return datetime.strptime(value, "%Y%m%dT%H%M%S")
+    except ValueError:
+        return None
+
+
+def format_task_timestamp(value: Optional[str]) -> str:
+    dt = parse_task_timestamp(value)
+    if not dt:
+        return ""
+    return dt.strftime("%Y-%m-%d")
+
+
+def format_age(value: Optional[str]) -> str:
+    dt = parse_task_timestamp(value)
+    if not dt:
+        return ""
+    now = datetime.now(tz=timezone.utc)
+    delta = now - dt
+    seconds = int(delta.total_seconds())
+    if seconds < 0:
+        seconds = 0
+    units = [
+        ("y", 365 * 86400),
+        ("mo", 30 * 86400),
+        ("wk", 7 * 86400),
+        ("d", 86400),
+        ("h", 3600),
+        ("min", 60),
+        ("s", 1),
+    ]
+    for suffix, unit in units:
+        if seconds >= unit:
+            return f"{seconds // unit}{suffix}"
+    return "0s"
+
+
+def label_for_column(column: str, label_map: Dict[str, str]) -> str:
+    if column in label_map:
+        return label_map[column]
+    defaults = {
+        "id": "ID",
+        "uuid": "UUID",
+        "description": "Description",
+        "age": "Age",
+        "project": "Project",
+        "priority": "Pri",
+        "due": "Due",
+        "urgency": "Urg",
+        "status": "Status",
+        "tags": "Tags",
+        "depends": "Deps",
+    }
+    return defaults.get(column, column.replace("_", " ").title())
+
+
+def get_taskwarrior_columns_and_labels() -> Tuple[List[str], List[str]]:
+    report = "list"
+    default_cmd = get_taskwarrior_setting("default.command")
+    if default_cmd:
+        report = default_cmd.split()[0]
+
+    columns_raw = split_csv(get_taskwarrior_setting(f"report.{report}.columns"))
+    labels_raw = split_csv(get_taskwarrior_setting(f"report.{report}.labels"))
+
+    if not columns_raw:
+        columns_raw = ["description", "id", "age", "project", "priority", "due", "urgency"]
+        labels_raw = ["Description", "ID", "Age", "Project", "Pri", "Due", "Urg"]
+
+    columns = [col.lower() for col in columns_raw]
+    label_map: Dict[str, str] = {}
+    if labels_raw and len(labels_raw) == len(columns_raw):
+        label_map = {col.lower(): label for col, label in zip(columns_raw, labels_raw)}
+
+    ordered: List[str] = ["description"]
+    if "id" in columns:
+        ordered.append("id")
+    ordered.extend([col for col in columns if col not in {"description", "id"}])
+    # Drop duplicates while preserving order.
+    seen = set()
+    ordered = [col for col in ordered if not (col in seen or seen.add(col))]
+
+    labels = [label_for_column(col, label_map) for col in ordered]
+    return ordered, labels
+
+
+def format_depends(depends_value: Optional[str], uuid_to_id: Dict[str, Optional[int]]) -> str:
+    deps = parse_dependencies(depends_value)
+    if not deps:
+        return ""
+    rendered = []
+    for dep_uuid in deps:
+        dep_id = uuid_to_id.get(dep_uuid)
+        rendered.append(str(dep_id) if dep_id is not None else "?")
+    return ",".join(rendered)
+
+
+def format_task_field(task: Dict, column: str, uuid_to_id: Dict[str, Optional[int]]) -> str:
+    col = column.lower()
+    if col == "id":
+        task_id = task.get("id")
+        return str(task_id) if task_id is not None else ""
+    if col == "description":
+        return task.get("description", "")
+    if col == "project":
+        return task.get("project", "")
+    if col == "priority":
+        return task.get("priority", "")
+    if col == "urgency":
+        urgency = task.get("urgency")
+        return f"{urgency:.2f}" if isinstance(urgency, (int, float)) else ""
+    if col == "tags":
+        tags = task.get("tags") or []
+        return ",".join(tags) if isinstance(tags, list) else str(tags)
+    if col == "depends":
+        return format_depends(task.get("depends"), uuid_to_id)
+    if col == "age":
+        return format_age(task.get("entry"))
+    if col in {"entry", "modified", "due", "wait", "scheduled", "until", "start", "end", "reviewed"}:
+        return format_task_timestamp(task.get(col))
+    if col == "status":
+        return task.get("status", "")
+    if col == "annotations":
+        annotations = task.get("annotations") or []
+        return str(len(annotations)) if isinstance(annotations, list) else ""
+    if col == "uuid":
+        return task.get("uuid", "")
+    value = task.get(col)
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return ",".join(str(item) for item in value)
+    if isinstance(value, dict):
+        return json.dumps(value, separators=(",", ":"))
+    return str(value)
+
+
+def apply_task_color(line: str, task: Dict) -> str:
+    if task.get("start"):
+        return f"\x1b[42m{line}\x1b[0m"
+    priority = task.get("priority", "")
+    if priority == "H":
+        return f"\x1b[31m{line}\x1b[0m"
+    if priority == "M":
+        return f"\x1b[33m{line}\x1b[0m"
+    if priority == "L":
+        return f"\x1b[34m{line}\x1b[0m"
+    return line
 
 
 def get_tasks() -> List[Dict]:
@@ -185,11 +259,7 @@ def get_tasks() -> List[Dict]:
             text=True,
             check=True
         )
-        # Parse line by line as each line may be a separate JSON object
-        tasks = []
-        for line in result.stdout.strip().split('\n'):
-            if line:
-                tasks.append(json.loads(line))
+        tasks = _parse_taskwarrior_json(result.stdout)
         # Filter to pending tasks only
         return [t for t in tasks if t.get("status") == "pending"]
     except subprocess.CalledProcessError as e:
@@ -215,21 +285,16 @@ def build_dependency_graph(tasks: List[Dict]) -> tuple[Dict[str, Dict], Dict[str
 
     for task in tasks:
         uuid = task["uuid"]
-        if "depends" in task:
-            # depends field is a comma-separated string of UUIDs
-            deps = task["depends"].split(",") if task["depends"] else []
-            for dep_uuid in deps:
-                dep_uuid = dep_uuid.strip()
-                if dep_uuid:
-                    depends_on[uuid].add(dep_uuid)
-                    depended_by[dep_uuid].add(uuid)
+        for dep_uuid in parse_dependencies(task.get("depends")):
+            depends_on[uuid].add(dep_uuid)
+            depended_by[dep_uuid].add(uuid)
 
     return task_map, depends_on, depended_by
 
 
 def format_task(task: Dict) -> str:
     """
-    Format a task for display in the list view.
+    Format a task for simple tree output or tests.
 
     Parameters
     ----------
@@ -247,10 +312,177 @@ def format_task(task: Dict) -> str:
     return f"[{task_id}] {description} (urgency: {urgency:.1f})"
 
 
+def collect_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]],
+                        depended_by: Dict[str, Set[str]]) -> List[Tuple[Dict, str]]:
+    rows: List[Tuple[Dict, str]] = []
+    visited: Set[str] = set()
+
+    def add_task(uuid: str, ancestors_has_more: List[bool] = None,
+                 has_more_siblings: bool = False):
+        if ancestors_has_more is None:
+            ancestors_has_more = []
+        if uuid in visited:
+            return
+        if uuid not in task_map:
+            return
+
+        visited.add(uuid)
+        task = task_map[uuid]
+        prefix = build_tree_prefix(ancestors_has_more)
+        rows.append((task, prefix))
+
+        deps = depends_on.get(uuid, [])
+        if deps:
+            dep_list = sorted(
+                deps,
+                key=lambda u: task_map.get(u, {}).get("urgency", 0),
+                reverse=True
+            )
+            for idx, dep_uuid in enumerate(dep_list):
+                has_more = idx < len(dep_list) - 1
+                add_task(dep_uuid, ancestors_has_more + [has_more_siblings], has_more)
+
+    top_level = []
+    for uuid in task_map:
+        if not depended_by.get(uuid):
+            top_level.append(uuid)
+    top_level.sort(key=lambda u: task_map[u].get("urgency", 0), reverse=True)
+
+    for idx, uuid in enumerate(top_level):
+        has_more = idx < len(top_level) - 1
+        add_task(uuid, [], has_more)
+
+    orphaned = [uuid for uuid in task_map if uuid not in visited]
+    if orphaned:
+        orphaned.sort(key=lambda u: task_map[u].get("urgency", 0), reverse=True)
+        for idx, uuid in enumerate(orphaned):
+            has_more = idx < len(orphaned) - 1
+            add_task(uuid, [], has_more)
+
+    return rows
+
+
+def collect_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]],
+                         depended_by: Dict[str, Set[str]]) -> List[Tuple[Dict, str]]:
+    rows: List[Tuple[Dict, str]] = []
+
+    def add_task(uuid: str, ancestors_has_more: List[bool] = None,
+                 has_more_siblings: bool = False, ancestors: Set[str] = None):
+        if ancestors_has_more is None:
+            ancestors_has_more = []
+        if ancestors is None:
+            ancestors = set()
+        if uuid in ancestors:
+            return
+        if uuid not in task_map:
+            return
+
+        task = task_map[uuid]
+        prefix = build_tree_prefix(ancestors_has_more)
+        rows.append((task, prefix))
+
+        dependents = depended_by.get(uuid, [])
+        if dependents:
+            dep_list = sorted(
+                dependents,
+                key=lambda u: task_map.get(u, {}).get("urgency", 0),
+                reverse=True
+            )
+            for idx, dep_uuid in enumerate(dep_list):
+                has_more = idx < len(dep_list) - 1
+                add_task(
+                    dep_uuid,
+                    ancestors_has_more + [has_more_siblings],
+                    has_more,
+                    ancestors | {uuid}
+                )
+
+    bottom_level = []
+    for uuid in task_map:
+        if not depends_on.get(uuid):
+            bottom_level.append(uuid)
+    bottom_level.sort(key=lambda u: task_map[u].get("urgency", 0), reverse=True)
+
+    for idx, uuid in enumerate(bottom_level):
+        has_more = idx < len(bottom_level) - 1
+        add_task(uuid, [], has_more)
+
+    def has_bottom_level_dependency(uuid: str, visited: Set[str] = None) -> bool:
+        if visited is None:
+            visited = set()
+        if uuid in visited:
+            return False
+        if uuid in bottom_level:
+            return True
+        visited.add(uuid)
+        for dep_uuid in depends_on.get(uuid, []):
+            if dep_uuid in task_map and has_bottom_level_dependency(dep_uuid, visited):
+                return True
+        return False
+
+    orphaned = [uuid for uuid in task_map
+                if uuid not in bottom_level and not has_bottom_level_dependency(uuid)]
+    if orphaned:
+        orphaned.sort(key=lambda u: task_map[u].get("urgency", 0), reverse=True)
+        for idx, uuid in enumerate(orphaned):
+            has_more = idx < len(orphaned) - 1
+            add_task(uuid, [], has_more)
+
+    return rows
+
+
+def render_task_table(rows: List[Tuple[Dict, str]],
+                      columns: List[str],
+                      labels: List[str],
+                      uuid_to_id: Dict[str, Optional[int]]) -> List[str]:
+    if not rows:
+        return []
+
+    normalized_columns = [col.lower() for col in columns]
+    if len(labels) != len(normalized_columns):
+        labels = [label_for_column(col, {}) for col in normalized_columns]
+    widths = [len(label) for label in labels]
+    rendered_rows: List[Tuple[Dict, List[str]]] = []
+
+    for task, prefix in rows:
+        values: List[str] = []
+        for col in normalized_columns:
+            if col == "description":
+                value = f"{prefix}{format_task_field(task, col, uuid_to_id)}"
+            else:
+                value = format_task_field(task, col, uuid_to_id)
+            values.append(value)
+        for idx, value in enumerate(values):
+            widths[idx] = max(widths[idx], len(value))
+        rendered_rows.append((task, values))
+
+    header = "  ".join(label.ljust(widths[idx]) for idx, label in enumerate(labels))
+    separator = "  ".join("-" * width for width in widths)
+
+    lines = [header, separator]
+    for task, values in rendered_rows:
+        line = "  ".join(values[idx].ljust(widths[idx]) for idx in range(len(values)))
+        lines.append(apply_task_color(line, task))
+
+    return lines
+
+
+def build_task_table_lines(tasks: List[Dict], reverse: bool = False,
+                           columns: Optional[List[str]] = None,
+                           labels: Optional[List[str]] = None) -> List[str]:
+    task_map, depends_on, depended_by = build_dependency_graph(tasks)
+    rows = collect_tree_reverse(task_map, depends_on, depended_by) if reverse else \
+        collect_tree_normal(task_map, depends_on, depended_by)
+
+    if columns is None or labels is None:
+        columns, labels = get_taskwarrior_columns_and_labels()
+
+    uuid_to_id = {t.get("uuid"): t.get("id") for t in tasks if t.get("uuid")}
+    return render_task_table(rows, columns, labels, uuid_to_id)
+
+
 def print_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]],
                      depended_by: Dict[str, Set[str]], indent: str = "  ",
-                     line_map: Optional[Dict[int, str]] = None,
-                     desc_col: Optional[int] = None,
                      blank_line_between_top_level: bool = True):
     """
     Print dependency list with unblocked tasks at top level.
@@ -268,17 +500,16 @@ def print_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]]
         Mapping from UUID to set of UUIDs that depend on this task.
     indent : str, optional
         Indentation string for each level (default: "  ").
-    line_map : Optional[Dict[int, str]]
-        Optional mapping of task ID to Taskwarrior-formatted line.
-    desc_col : Optional[int]
-        Visible column index where the description starts.
     blank_line_between_top_level : bool
         Whether to print a blank line between top-level tasks.
     """
     visited = set()
 
-    def print_task_and_deps(uuid: str, level: int = 0):
+    def print_task_and_deps(uuid: str, ancestors_has_more: List[bool] = None,
+                            has_more_siblings: bool = False):
         """Recursively print a task and its dependencies."""
+        if ancestors_has_more is None:
+            ancestors_has_more = []
         if uuid in visited:
             return
 
@@ -288,15 +519,20 @@ def print_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]]
 
         visited.add(uuid)
         task = task_map[uuid]
-        print(format_task_line(task, level, indent, line_map, desc_col))
+        prefix = build_tree_prefix(ancestors_has_more)
+        print(f"{prefix}{format_task(task)}")
 
         # Print dependencies (tasks this one depends on)
         deps = depends_on.get(uuid, [])
         if deps:
-            for dep_uuid in sorted(deps,
-                                  key=lambda u: task_map.get(u, {}).get("urgency", 0),
-                                  reverse=True):
-                print_task_and_deps(dep_uuid, level + 1)
+            dep_list = sorted(
+                deps,
+                key=lambda u: task_map.get(u, {}).get("urgency", 0),
+                reverse=True
+            )
+            for idx, dep_uuid in enumerate(dep_list):
+                has_more = idx < len(dep_list) - 1
+                print_task_and_deps(dep_uuid, ancestors_has_more + [has_more_siblings], has_more)
 
     # Find top-level tasks (tasks that no other pending task depends on)
     top_level = []
@@ -308,8 +544,9 @@ def print_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]]
     # Sort by urgency (descending)
     top_level.sort(key=lambda u: task_map[u].get("urgency", 0), reverse=True)
 
-    for uuid in top_level:
-        print_task_and_deps(uuid)
+    for idx, uuid in enumerate(top_level):
+        has_more = idx < len(top_level) - 1
+        print_task_and_deps(uuid, [], has_more)
         if blank_line_between_top_level:
             print()  # Blank line between top-level tasks
 
@@ -318,16 +555,15 @@ def print_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]]
     orphaned = [uuid for uuid in task_map if uuid not in visited]
     if orphaned:
         orphaned.sort(key=lambda u: task_map[u].get("urgency", 0), reverse=True)
-        for uuid in orphaned:
-            print_task_and_deps(uuid)
+        for idx, uuid in enumerate(orphaned):
+            has_more = idx < len(orphaned) - 1
+            print_task_and_deps(uuid, [], has_more)
             if blank_line_between_top_level:
                 print()
 
 
 def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]],
                       depended_by: Dict[str, Set[str]], indent: str = "  ",
-                      line_map: Optional[Dict[int, str]] = None,
-                      desc_col: Optional[int] = None,
                       blank_line_between_top_level: bool = True):
     """
     Print dependency list with blocking tasks at top level.
@@ -345,16 +581,16 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
         Mapping from UUID to set of UUIDs that depend on this task.
     indent : str, optional
         Indentation string for each level (default: "  ").
-    line_map : Optional[Dict[int, str]]
-        Optional mapping of task ID to Taskwarrior-formatted line.
-    desc_col : Optional[int]
-        Visible column index where the description starts.
     blank_line_between_top_level : bool
         Whether to print a blank line between top-level tasks.
     """
 
-    def print_task_and_dependents(uuid: str, level: int = 0, ancestors: Set[str] = None):
+    def print_task_and_dependents(uuid: str, ancestors_has_more: List[bool] = None,
+                                  has_more_siblings: bool = False,
+                                  ancestors: Set[str] = None):
         """Recursively print a task and tasks that depend on it."""
+        if ancestors_has_more is None:
+            ancestors_has_more = []
         if ancestors is None:
             ancestors = set()
 
@@ -367,16 +603,26 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
             return
 
         task = task_map[uuid]
-        print(format_task_line(task, level, indent, line_map, desc_col))
+        prefix = build_tree_prefix(ancestors_has_more)
+        print(f"{prefix}{format_task(task)}")
 
         # Print dependents (tasks that depend on this one)
         dependents = depended_by.get(uuid, [])
         if dependents:
-            for dep_uuid in sorted(dependents,
-                                  key=lambda u: task_map.get(u, {}).get("urgency", 0),
-                                  reverse=True):
+            dep_list = sorted(
+                dependents,
+                key=lambda u: task_map.get(u, {}).get("urgency", 0),
+                reverse=True
+            )
+            for idx, dep_uuid in enumerate(dep_list):
+                has_more = idx < len(dep_list) - 1
                 # Add current uuid to ancestors before recursing
-                print_task_and_dependents(dep_uuid, level + 1, ancestors | {uuid})
+                print_task_and_dependents(
+                    dep_uuid,
+                    ancestors_has_more + [has_more_siblings],
+                    has_more,
+                    ancestors | {uuid}
+                )
 
     # Find bottom-level tasks (tasks that don't depend on any other pending tasks)
     bottom_level = []
@@ -390,8 +636,9 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
     # Sort by urgency (descending)
     bottom_level.sort(key=lambda u: task_map[u].get("urgency", 0), reverse=True)
 
-    for uuid in bottom_level:
-        print_task_and_dependents(uuid)
+    for idx, uuid in enumerate(bottom_level):
+        has_more = idx < len(bottom_level) - 1
+        print_task_and_dependents(uuid, [], has_more)
         if blank_line_between_top_level:
             print()  # Blank line between top-level tasks
 
@@ -418,8 +665,9 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
                 if uuid not in bottom_level and not has_bottom_level_dependency(uuid)]
     if orphaned:
         orphaned.sort(key=lambda u: task_map[u].get("urgency", 0), reverse=True)
-        for uuid in orphaned:
-            print_task_and_dependents(uuid)
+        for idx, uuid in enumerate(orphaned):
+            has_more = idx < len(orphaned) - 1
+            print_task_and_dependents(uuid, [], has_more)
             if blank_line_between_top_level:
                 print()
 
@@ -443,8 +691,8 @@ def list_tasks(
     """
     Display Taskwarrior tasks in hierarchical dependency list view.
 
-    Uses Taskwarrior's default list formatting and colors, while
-    preserving the hierarchy.
+    Uses Taskwarrior JSON export data with a custom formatter that preserves
+    hierarchy, description-first layout, and Taskwarrior-like colors.
     """
     tasks = get_tasks()
 
@@ -452,42 +700,14 @@ def list_tasks(
         print("No pending tasks found.")
         return
 
-    task_map, depends_on, depended_by = build_dependency_graph(tasks)
-    line_map, header_lines, footer_lines, desc_col = get_taskwarrior_report_lines(tasks)
-
     if mode:
         if mode != "reverse":
             raise typer.BadParameter("Only 'reverse' is supported as a mode.")
         reverse = True
 
-    use_taskwarrior_lines = bool(line_map)
-
-    if use_taskwarrior_lines and header_lines:
-        for line in header_lines:
-            print(line)
-
-    if reverse:
-        print_tree_reverse(
-            task_map,
-            depends_on,
-            depended_by,
-            line_map=line_map,
-            desc_col=desc_col,
-            blank_line_between_top_level=not use_taskwarrior_lines
-        )
-    else:
-        print_tree_normal(
-            task_map,
-            depends_on,
-            depended_by,
-            line_map=line_map,
-            desc_col=desc_col,
-            blank_line_between_top_level=not use_taskwarrior_lines
-        )
-
-    if use_taskwarrior_lines and footer_lines:
-        for line in footer_lines:
-            print(line)
+    lines = build_task_table_lines(tasks, reverse=reverse)
+    for line in lines:
+        print(line)
 
 
 @app.command("reverse")
@@ -529,13 +749,13 @@ def graph(
         None,
         "--output",
         "-o",
-        help="Output path for Mermaid file (default: tasks.mmd)"
+        help="Output path for Mermaid file (default: /tmp/tasks.mmd)"
     ),
     csv: Optional[str] = typer.Option(
         None,
         "--csv",
         "-c",
-        help="Output path for CSV export (default: tasks.csv)"
+        help="Output path for CSV export (default: /tmp/tasks.csv)"
     ),
     render: bool = typer.Option(
         True,
@@ -551,10 +771,9 @@ def graph(
     """
     Generate Mermaid flowchart of task dependencies.
 
-    Creates a Mermaid diagram showing task dependencies, renders it to SVG
-    by default (open in browser), or PNG with --png.
+    Creates a Mermaid diagram showing task dependencies, writes outputs to
+    /tmp by default, and renders to SVG (open in browser) unless --png is set.
     """
-    from pathlib import Path
     from .graph import get_tasks_from_taskwarrior, create_task_graph
 
     # Get tasks
@@ -570,8 +789,9 @@ def graph(
         reverse = True
 
     # Set default output paths
-    output_mmd = Path(output) if output else Path("tasks.mmd")
-    output_csv = Path(csv) if csv else Path("tasks.csv")
+    output_dir = get_graph_output_dir()
+    output_mmd = Path(output) if output else output_dir / "tasks.mmd"
+    output_csv = Path(csv) if csv else output_dir / "tasks.csv"
 
     # Generate graph
     print(f"Generating Mermaid graph: {output_mmd}")

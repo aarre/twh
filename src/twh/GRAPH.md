@@ -21,9 +21,9 @@ twh graph
 
 This will:
 - Export all pending tasks from Taskwarrior
-- Generate `tasks.mmd` (Mermaid diagram)
-- Generate `tasks.csv` (CSV export)
-- Render to `tasks.svg` and open it in your default web browser
+- Generate `/tmp/tasks.mmd` (Mermaid diagram)
+- Generate `/tmp/tasks.csv` (CSV export)
+- Render to `/tmp/tasks.svg` and open it in your default web browser
 
 ### Custom Output Paths
 
@@ -257,7 +257,7 @@ The CSV export is designed for easy import into Tana (or other systems):
 
 ### Import Workflow
 
-1. Open `tasks.csv` in Google Sheets
+1. Open `/tmp/tasks.csv` in Google Sheets
 2. Select all cells and copy
 3. Paste into Tana
 
@@ -281,11 +281,11 @@ This allows you to:
 twh graph
 
 # Output:
-# Generating Mermaid graph: tasks.mmd
-# Generated Mermaid file: tasks.mmd
-# Generated CSV file: tasks.csv
-# Rendering to SVG: tasks.svg
-# Successfully rendered to: tasks.svg
+# Generating Mermaid graph: /tmp/tasks.mmd
+# Generated Mermaid file: /tmp/tasks.mmd
+# Generated CSV file: /tmp/tasks.csv
+# Rendering to SVG: /tmp/tasks.svg
+# Successfully rendered to: /tmp/tasks.svg
 # [Browser opens the SVG file]
 ```
 
@@ -311,9 +311,9 @@ twh graph --output project-deps.mmd --csv project-tasks.csv
 twh graph --no-render
 
 # Output:
-# Generating Mermaid graph: tasks.mmd
-# Generated Mermaid file: tasks.mmd
-# Generated CSV file: tasks.csv
+# Generating Mermaid graph: /tmp/tasks.mmd
+# Generated Mermaid file: /tmp/tasks.mmd
+# Generated CSV file: /tmp/tasks.csv
 ```
 
 ### Example 4: View in Mermaid Live Editor
