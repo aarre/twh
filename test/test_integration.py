@@ -188,7 +188,7 @@ class TestGraphIntegration(unittest.TestCase):
             )
 
             # Should produce minimal but valid Mermaid
-            self.assertEqual(mermaid_content, 'flowchart LR')
+            self.assertIn('flowchart LR', mermaid_content)
 
             # Files should still be created
             self.assertTrue(mmd_path.exists())

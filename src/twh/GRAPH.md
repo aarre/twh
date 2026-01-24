@@ -349,8 +349,16 @@ flowchart LR
 
 Each node contains:
 - Task description
+- Task ID (shown as a small badge in the lower-left portion of the node)
 
-Example: `"Setup dev environment"`
+Example: `"Setup dev environment"` with `ID: 12` badge.
+
+HTML labels are enabled for this layout.
+
+### Node Colors
+
+- **Started tasks** (`start` set) render with green boxes.
+- **Blocked tasks** (dependencies on other pending tasks) render with gray boxes.
 
 ### Edge Format
 

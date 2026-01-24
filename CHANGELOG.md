@@ -4,6 +4,7 @@
 
 - **graph**: show all tasks (with or without dependencies or dependents) in `twh graph` views
 - **list/graph**: share Taskwarrior JSON export parsing helpers
+- **graph**: add task ID badges and status-based node colors (started/blocked)
 
 ### Fixes
 

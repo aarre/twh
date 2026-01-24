@@ -7,6 +7,7 @@ Mermaid flowcharts and CSV files for import into other systems (e.g., Tana).
 """
 
 import csv
+import html
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional
@@ -112,7 +113,8 @@ def collapse_chains(uid_map: Dict[str, Dict], succ: Dict[str, Set[str]],
 
 def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
     """
-    Generate Mermaid flowchart syntax from dependency chains.
+    Generate Mermaid flowchart syntax from dependency chains with ID labels
+    and status-based styling.
 
     Parameters
     ----------
@@ -128,24 +130,49 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
     """
     def sanitize_label(text: str) -> str:
         text = text.replace('\r', ' ').replace('\n', ' ')
-        text = text.replace('"', '')
-        text = text.replace('\\', '\\\\')
-        text = text.replace('<', '&lt;').replace('>', '&gt;')
         text = text.replace('[', '(').replace(']', ')')
-        return text
+        return html.escape(text, quote=True)
 
     def node_id(uuid: str) -> str:
         return f"t_{uuid.replace('-', '')}"
 
-    lines = ['flowchart LR']
+    def node_label(task: Dict) -> str:
+        desc = sanitize_label(task.get('description', ''))
+        task_id = task.get('id')
+        id_text = f"ID: {task_id}" if task_id is not None else "ID: ?"
+        id_text = sanitize_label(id_text)
+        return (
+            '<div class="twh-node">'
+            f'<div class="twh-desc">{desc}</div>'
+            f'<div class="twh-id">{id_text}</div>'
+            '</div>'
+        )
+
+    def node_state(task: Dict) -> Optional[str]:
+        if any(dep in uid_map for dep in parse_dependencies(task.get('depends'))):
+            return "blocked"
+        if task.get("start"):
+            return "started"
+        return None
+
+    lines = [
+        '%%{init: {"flowchart": {"htmlLabels": true}, "themeCSS": '
+        '".twh-node{font-family:Verdana,Arial,sans-serif;line-height:1.2;'
+        'padding:6px 6px 10px 6px;text-align:left;word-break:break-word;}'
+        '.twh-desc{display:block;margin-bottom:4px;}'
+        '.twh-id{display:inline-block;font-size:10px;border:1px solid #666;'
+        'border-radius:3px;padding:1px 4px;background:rgba(255,255,255,0.65);}"} }%%',
+        'flowchart LR',
+        '  classDef default fill:#ede7f6,stroke:#7e6bc4,color:#1f1f1f;',
+        '  classDef started fill:#b7e1b2,stroke:#2e7d32,color:#1b5e20;',
+        '  classDef blocked fill:#e0e0e0,stroke:#9e9e9e,color:#424242;'
+    ]
     used = set()
 
     for chain in chains:
         labels = []
         for uuid in chain:
-            desc = uid_map[uuid].get('description', '')
-            # Clean description: remove newlines, escape quotes/special chars.
-            labels.append(sanitize_label(desc))
+            labels.append(node_label(uid_map[uuid]))
             used.add(uuid)
 
         # Create arrow chain with stable node IDs and readable labels.
@@ -159,9 +186,13 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
     for uuid in uid_map:
         if uuid in used:
             continue
-        desc = uid_map[uuid].get('description', '')
-        label = sanitize_label(desc)
+        label = node_label(uid_map[uuid])
         lines.append(f'  {node_id(uuid)}["{label}"]')
+
+    for uuid, task in uid_map.items():
+        state = node_state(task)
+        if state:
+            lines.append(f'  class {node_id(uuid)} {state}')
 
     return '\n'.join(lines)
 

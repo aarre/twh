@@ -11,3 +11,4 @@ twh graph
 By default, `twh graph` writes `/tmp/tasks.mmd` and `/tmp/tasks.csv`, then renders
 `/tmp/tasks.svg` and opens it in your default web browser (use `--png` for PNG).
 `twh list` and `twh graph` both parse `task export` JSON using shared helpers (no scraping).
+Graph nodes include task IDs and status-based colors (green started, gray blocked).

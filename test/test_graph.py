@@ -236,7 +236,7 @@ class TestGenerateMermaid(unittest.TestCase):
         chains = []
         mermaid = generate_mermaid(uid_map, chains)
 
-        self.assertEqual(mermaid, 'flowchart LR')
+        self.assertIn('flowchart LR', mermaid)
 
     def test_standalone_tasks(self):
         """Standalone tasks should appear as nodes."""
@@ -251,6 +251,31 @@ class TestGenerateMermaid(unittest.TestCase):
         self.assertIn('Task B', mermaid)
         self.assertIn('t_a', mermaid)
         self.assertIn('t_b', mermaid)
+
+    def test_ids_in_labels(self):
+        """Task IDs should appear in node labels."""
+        uid_map = {
+            'a': {'description': 'Task A', 'id': 12},
+            'b': {'description': 'Task B', 'id': 7}
+        }
+        chains = [['a', 'b']]
+        mermaid = generate_mermaid(uid_map, chains)
+
+        self.assertIn('ID: 12', mermaid)
+        self.assertIn('ID: 7', mermaid)
+
+    def test_started_and_blocked_classes(self):
+        """Started and blocked tasks should be styled via classes."""
+        uid_map = {
+            'a': {'description': 'Blocking', 'id': 1},
+            'b': {'description': 'Blocked', 'id': 2, 'depends': 'a'},
+            'c': {'description': 'Started', 'id': 3, 'start': '20260101T120000Z'}
+        }
+        chains = [['b', 'a'], ['c']]
+        mermaid = generate_mermaid(uid_map, chains)
+
+        self.assertIn('class t_b blocked', mermaid)
+        self.assertIn('class t_c started', mermaid)
 
     def test_single_chain(self):
         """Single chain should produce one arrow."""
@@ -282,7 +307,7 @@ class TestGenerateMermaid(unittest.TestCase):
         self.assertIn(long_desc, mermaid)
 
     def test_quote_escaping(self):
-        """Quotes in descriptions should be removed."""
+        """Quotes in descriptions should be escaped."""
         uid_map = {
             'aaaa-1111': {'description': 'Task "with quotes"'},
             'bbbb-2222': {'description': 'Task B'}
@@ -290,8 +315,8 @@ class TestGenerateMermaid(unittest.TestCase):
         chains = [['aaaa-1111', 'bbbb-2222']]
         mermaid = generate_mermaid(uid_map, chains)
 
-        # Quotes should be removed
-        self.assertIn('Task with quotes', mermaid)
+        # Quotes should be escaped
+        self.assertIn('Task &quot;with quotes&quot;', mermaid)
         self.assertNotIn('Task "with quotes"', mermaid)
 
     def test_newline_handling(self):
