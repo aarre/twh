@@ -596,6 +596,23 @@ class TestTaskTableRendering(unittest.TestCase):
         for line in data_lines:
             self.assertTrue(line[id_index:id_index + 2].strip().isdigit())
 
+    def test_table_lines_use_defaults_when_columns_empty(self):
+        tasks = [
+            {"uuid": "a", "id": 1, "description": "Task A"},
+            {"uuid": "b", "id": 2, "description": "Task B"},
+        ]
+
+        lines = build_task_table_lines(tasks, columns=[], labels=[])
+        self.assertGreaterEqual(len(lines), 3)
+
+        header = lines[0]
+        self.assertIn("Description", header)
+        self.assertIn("ID", header)
+
+        data_lines = lines[2:]
+        self.assertTrue(any("Task A" in line for line in data_lines))
+        self.assertTrue(any("Task B" in line for line in data_lines))
+
 
 if __name__ == '__main__':
     unittest.main()

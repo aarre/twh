@@ -2,13 +2,17 @@
 
 ### Features
 
-- **graph**: color graph nodes by status
-- **graph**: add task ID badges and due dates in node labels
-- **graph**: add urgency-based magma gradient for node colors
+- **graph**: render nodes as urgency bar + status panel
+- **graph**: show urgency values in the top bar with rank-based gradient colors
+- **graph**: show task ID, name, and due date in the status panel
+- **graph**: color status panels by state (started/blocked/normal)
+- **graph**: map urgency across the full gradient range with fixed opacity
+- **graph**: parse string urgency values and round to 2 decimals before ranking
 
 ### Fixes
 
 - **graph**: fix orphan tasks in graph view
+- **list**: fall back to default columns/labels when report config is empty
 
 ## 0.5.0 (2026-01-23)
 

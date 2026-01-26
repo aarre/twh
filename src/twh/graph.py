@@ -114,8 +114,8 @@ def collapse_chains(uid_map: Dict[str, Dict], succ: Dict[str, Set[str]],
 
 def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
     """
-    Generate Mermaid flowchart syntax from dependency chains with ID labels
-    and status-based styling.
+    Generate Mermaid flowchart syntax from dependency chains with urgency bars
+    and status-based panels.
 
     Parameters
     ----------
@@ -154,20 +154,37 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
     def node_id(uuid: str) -> str:
         return f"t_{uuid.replace('-', '')}"
 
-    def node_label(task: Dict) -> str:
+    def node_label(task: Dict, urgency_color: str) -> str:
         desc = sanitize_label(task.get('description', ''))
         task_id = task.get('id')
         id_text = f"ID: {task_id}" if task_id is not None else "ID: ?"
         id_text = sanitize_label(id_text)
+        urg_value = task.get("urgency")
+        urg_text = "?"
+        if urg_value is not None:
+            try:
+                urg_num = float(urg_value)
+                urg_text = f"{urg_num:.2f}".rstrip("0").rstrip(".")
+            except (TypeError, ValueError):
+                urg_text = str(urg_value)
+        urg_text = sanitize_label(f"Urg: {urg_text}")
         due_value = format_task_date(task.get("due"))
-        due_html = f'<div class="twh-due">Due: {sanitize_label(due_value)}</div>' if due_value else ""
+        due_html = f'<span class="twh-due">Due: {sanitize_label(due_value)}</span>' if due_value else ""
+        status = node_state(task) or "normal"
+        rgb = hex_to_rgb(urgency_color)
+        urgency_style = f"background-color: rgba({rgb[0]},{rgb[1]},{rgb[2]},{fill_opacity});"
         return (
             '<div class="twh-node">'
-            '<div class="twh-body">'
-            f'<div class="twh-desc">{desc}</div>'
+            f'<div class="twh-urgency" style="{urgency_style}">'
+            f'{urg_text}'
+            '</div>'
+            f'<div class="twh-status twh-status-{status}">'
+            f'<div class="twh-title">{desc}</div>'
+            '<div class="twh-meta">'
+            f'<span class="twh-id twh-badge">{id_text}</span>'
             f'{due_html}'
             '</div>'
-            f'<div class="twh-id">{id_text}</div>'
+            '</div>'
             '</div>'
         )
 
@@ -180,8 +197,11 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
 
     def priority_score(task: Dict) -> float:
         urgency = task.get("urgency")
-        if isinstance(urgency, (int, float)):
-            return float(urgency)
+        if urgency is not None:
+            try:
+                return round(float(urgency), 2)
+            except (TypeError, ValueError):
+                pass
         priority = str(task.get("priority", "")).upper()
         mapping = {"H": 3.0, "M": 2.0, "L": 1.0}
         return mapping.get(priority, 0.0)
@@ -208,55 +228,50 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
         c2 = hex_to_rgb(palette[idx + 1])
         return (lerp(c1[0], c2[0], frac), lerp(c1[1], c2[1], frac), lerp(c1[2], c2[2], frac))
 
-    def blend_with_white(rgb: Tuple[int, int, int], white_weight: float) -> Tuple[int, int, int]:
-        white_weight = max(0.0, min(1.0, white_weight))
-        return (
-            lerp(rgb[0], 255, white_weight),
-            lerp(rgb[1], 255, white_weight),
-            lerp(rgb[2], 255, white_weight),
-        )
-
     scores = [priority_score(task) for task in uid_map.values()]
-    min_score = min(scores) if scores else 0.0
-    max_score = max(scores) if scores else 0.0
+    unique_scores = sorted(set(scores))
+    rank_map = {score: idx for idx, score in enumerate(unique_scores)}
+    rank_denom = max(len(unique_scores) - 1, 1)
 
-    # A light segment of the magma palette for urgency gradients.
-    palette = ["#4f0c6b", "#7e1d6d", "#a52c60", "#cf4446", "#ed6925", "#fb9b06"]
+    # Cool-to-hot urgency palette (chill -> on fire).
+    palette = ["#2b83ba", "#5aa6d1", "#8dd0e6", "#cfe9f2", "#fee8c8",
+               "#fdbb84", "#f46d43", "#d73027", "#a50026"]
+    fill_opacity = 0.35
 
     def color_for_task(task: Dict) -> Optional[str]:
-        if node_state(task) is not None:
-            return None
         score = priority_score(task)
-        if max_score <= min_score:
-            return "#ffffff"
-        if score <= min_score:
-            return "#ffffff"
-        t = (score - min_score) / (max_score - min_score)
+        if not unique_scores:
+            return None
+        rank = rank_map.get(score, 0)
+        t = rank / rank_denom if rank_denom else 0.0
         base = interpolate_palette(palette, t)
-        white_weight = 0.85 - (0.35 * t)
-        return rgb_to_hex(blend_with_white(base, white_weight))
+        return rgb_to_hex(base)
 
     lines = [
         '%%{init: {"flowchart": {"htmlLabels": true}, "themeCSS": '
-        '".twh-node{position:relative;font-family:Verdana,Arial,sans-serif;'
-        'line-height:1.2;padding:0;text-align:left;word-break:break-word;}'
-        '.twh-body{padding:6px 6px 24px 6px;}'
-        '.twh-desc{display:block;margin-bottom:4px;}'
-        '.twh-due{display:block;font-size:11px;color:#333;}'
-        '.twh-id{position:absolute;left:0;bottom:0;font-size:12px;'
-        'font-weight:600;border:1px solid #666;border-radius:3px;'
+        '".twh-node{border:1px solid #7a7a7a;border-radius:4px;overflow:hidden;'
+        'font-family:Verdana,Arial,sans-serif;line-height:1.2;'
+        'text-align:left;word-break:break-word;}'
+        '.twh-urgency{font-size:11px;font-weight:700;padding:4px 6px;'
+        'text-transform:none;color:#1f1f1f;}'
+        '.twh-status{padding:6px;border-top:1px solid #7a7a7a;}'
+        '.twh-status-started{background:#b7e1b2;color:#1b5e20;}'
+        '.twh-status-blocked{background:#e0e0e0;color:#424242;}'
+        '.twh-status-normal{background:#ffffff;color:#1f1f1f;}'
+        '.twh-title{display:block;margin-bottom:4px;}'
+        '.twh-meta{display:flex;gap:6px;align-items:center;font-size:11px;}'
+        '.twh-badge{font-weight:600;border:1px solid #666;border-radius:3px;'
         'padding:2px 6px;background:rgba(255,255,255,0.75);}"} }%%',
         'flowchart LR',
-        '  classDef default fill:#ffffff,stroke:#7a7a7a,color:#1f1f1f;',
-        '  classDef started fill:#b7e1b2,stroke:#2e7d32,color:#1b5e20;',
-        '  classDef blocked fill:#e0e0e0,stroke:#9e9e9e,color:#424242;'
+        '  classDef default fill:transparent,stroke:transparent,color:#1f1f1f;'
     ]
     used = set()
 
     for chain in chains:
         labels = []
         for uuid in chain:
-            labels.append(node_label(uid_map[uuid]))
+            urgency_color = color_for_task(uid_map[uuid]) or "#cfe9f2"
+            labels.append(node_label(uid_map[uuid], urgency_color))
             used.add(uuid)
 
         # Create arrow chain with stable node IDs and readable labels.
@@ -270,17 +285,9 @@ def generate_mermaid(uid_map: Dict[str, Dict], chains: List[List[str]]) -> str:
     for uuid in uid_map:
         if uuid in used:
             continue
-        label = node_label(uid_map[uuid])
+        urgency_color = color_for_task(uid_map[uuid]) or "#cfe9f2"
+        label = node_label(uid_map[uuid], urgency_color)
         lines.append(f'  {node_id(uuid)}["{label}"]')
-
-    for uuid, task in uid_map.items():
-        state = node_state(task)
-        if state:
-            lines.append(f'  class {node_id(uuid)} {state}')
-            continue
-        fill = color_for_task(task)
-        if fill:
-            lines.append(f'  style {node_id(uuid)} fill:{fill}')
 
     return '\n'.join(lines)
 

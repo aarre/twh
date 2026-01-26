@@ -77,8 +77,10 @@ Task descriptions are automatically cleaned for display:
 
 ### Node Labels
 
-Each task node shows:
-- The task description
+Each task node is rendered as a two-tier label:
+- **Top urgency bar**: `Urg: <value>` with rank-based urgency color.
+- **Bottom status panel**: task ID, task name, and due date (if present),
+  colored by status (started/blocked/normal).
 
 ## Architecture
 
@@ -347,22 +349,25 @@ flowchart LR
 
 ### Node Format
 
-Each node contains:
-- Task description
-- Task ID (shown as a badge flush with the lower-left corner of the node)
-- Due date (if present, shown under the description)
-
-Example: `"Setup dev environment"` with `ID: 12` badge.
+Each node is rendered as two stacked rectangles:
+- **Top (urgency bar)**: Shows `Urg: <value>` and is colored by urgency rank.
+- **Bottom (status panel)**: Shows task ID, task name, and due date (if present),
+  and is colored by status (green = started, gray = blocked, white = other).
 
 HTML labels are enabled for this layout.
 
 ### Node Colors
 
-- **Started tasks** (`start` set) render with green boxes.
-- **Blocked tasks** (dependencies on other pending tasks) render with gray boxes.
-- **Other tasks** render with a low-saturation magma gradient based on urgency
-  (Taskwarrior `urgency`), falling back to priority (H/M/L) when urgency is missing.
-  The lowest priority values are rendered as white.
+- **Urgency bar** uses a cool-to-hot gradient based on rank-ordered
+  `urgency` values (Taskwarrior `urgency`), falling back to priority (H/M/L) when
+  urgency is missing. The lowest urgency values use the cool end of the gradient
+  and the highest urgency values use the hot end, with constant opacity for
+  legibility. Urgency values are parsed as floats (including strings) and
+  rounded to two decimals before ranking to match Taskwarrior display.
+- **Status panel** colors:
+  - Started tasks (`start` set): green
+  - Blocked tasks (dependencies on other pending tasks): gray
+  - Other tasks: white
 
 ### Edge Format
 

@@ -441,7 +441,7 @@ def build_task_table_lines(tasks: List[Dict], reverse: bool = False,
     rows = collect_tree_reverse(task_map, depends_on, depended_by) if reverse else \
         collect_tree_normal(task_map, depends_on, depended_by)
 
-    if columns is None or labels is None:
+    if not columns or not labels:
         columns, labels = get_taskwarrior_columns_and_labels()
 
     uuid_to_id = {t.get("uuid"): t.get("id") for t in tasks if t.get("uuid")}

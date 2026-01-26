@@ -284,27 +284,74 @@ class TestGenerateMermaid(unittest.TestCase):
         chains = [['b', 'a'], ['c']]
         mermaid = generate_mermaid(uid_map, chains)
 
-        self.assertIn('class t_b blocked', mermaid)
-        self.assertIn('class t_c started', mermaid)
+        self.assertIn('twh-status-blocked', mermaid)
+        self.assertIn('twh-status-started', mermaid)
 
     def test_id_badge_flush_corner(self):
-        """ID badge should be positioned at the lower-left corner."""
+        """Node layout should include urgency and status rectangles."""
         uid_map = {'a': {'description': 'Task A', 'id': 1}}
         mermaid = generate_mermaid(uid_map, [['a']])
 
-        self.assertIn('.twh-id{position:absolute;left:0;bottom:0', mermaid)
+        self.assertIn('.twh-urgency{', mermaid)
+        self.assertIn('.twh-status{', mermaid)
 
     def test_priority_gradient_colors(self):
-        """Priority colors should grade from white to a magma hue."""
+        """Priority colors should grade across the urgency spectrum."""
         uid_map = {
             'a': {'description': 'Low', 'id': 1, 'urgency': 1.0},
             'b': {'description': 'High', 'id': 2, 'urgency': 10.0},
         }
         mermaid = generate_mermaid(uid_map, [['a'], ['b']])
 
-        self.assertIn('style t_a fill:#ffffff', mermaid)
-        self.assertIn('style t_b fill:#', mermaid)
-        self.assertNotIn('style t_b fill:#ffffff', mermaid)
+        self.assertIn('background-color: rgba(', mermaid)
+
+    def test_ranked_urgency_colors(self):
+        """Distinct urgencies should map to distinct colors."""
+        uid_map = {
+            'a': {'description': 'U1', 'id': 1, 'urgency': 1.0},
+            'b': {'description': 'U2', 'id': 2, 'urgency': 2.0},
+            'c': {'description': 'U3', 'id': 3, 'urgency': 3.0},
+            'd': {'description': 'U4', 'id': 4, 'urgency': 4.0},
+        }
+        mermaid = generate_mermaid(uid_map, [['a'], ['b'], ['c'], ['d']])
+        colors = []
+        for line in mermaid.splitlines():
+            if 'background-color: rgba(' in line:
+                colors.append(line.split('background-color: ')[1].split(';')[0])
+
+        self.assertGreaterEqual(len(set(colors)), 4)
+
+    def test_same_displayed_urgency_same_color(self):
+        """Urgency values that round to the same display value share a color."""
+        uid_map = {
+            'a': {'description': 'U9.03288', 'id': 1, 'urgency': 9.03288},
+            'b': {'description': 'U9.0274', 'id': 2, 'urgency': 9.0274},
+        }
+        mermaid = generate_mermaid(uid_map, [['a'], ['b']])
+        colors = []
+        for line in mermaid.splitlines():
+            if 'background-color: rgba(' in line:
+                colors.append(line.split('background-color: ')[1].split(';')[0])
+
+        self.assertEqual(len(set(colors)), 1)
+
+    def test_priority_gradient_with_string_urgency(self):
+        """String urgency values should still map to different colors."""
+        uid_map = {
+            'a': {'description': 'Low', 'id': 1, 'urgency': '1.0'},
+            'b': {'description': 'High', 'id': 2, 'urgency': '10.0'},
+        }
+        mermaid = generate_mermaid(uid_map, [['a'], ['b']])
+
+        self.assertIn('Urg: 1', mermaid)
+        self.assertIn('Urg: 10', mermaid)
+
+    def test_urgency_badge_in_label(self):
+        """Urgency should appear in the urgency bar."""
+        uid_map = {'a': {'description': 'Task A', 'id': 1, 'urgency': 9.01}}
+        mermaid = generate_mermaid(uid_map, [['a']])
+
+        self.assertIn('Urg: 9.01', mermaid)
 
     def test_single_chain(self):
         """Single chain should produce one arrow."""
