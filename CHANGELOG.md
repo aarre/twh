@@ -1,3 +1,11 @@
+## 0.9.0 (2026-01-27)
+
+### Features
+
+- **graph**: make `twh graph` and `twh graph reverse` use graphviz instead of mermaid
+- **graph2**: color and label task nodes in the graph2/graphviz views
+- **graph2**: add task hierarchy graphing using graphviz
+
 ## 0.8.0 (2026-01-27)
 
 ### Features
