@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "twh"
-version = "0.6.0"
+version = "0.7.0"
 description = "Hierarchical views of Taskwarrior tasks"
 requires-python = ">=3.12"
 dependencies = [
@@ -31,7 +31,7 @@ cache-dir = ".uvcache"
 
 [tool.commitizen]
 name = "cz_customize"
-version = "0.6.0"
+version = "0.7.0"
 version_provider = "pep621"
 version_scheme = "semver"
 version_files = [

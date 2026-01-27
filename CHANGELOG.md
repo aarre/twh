@@ -1,3 +1,15 @@
+## 0.7.0 (2026-01-27)
+
+### Features
+
+- **twh**: make unknown commands pass through to taskwarrior
+- **codex**: add AGENTS.md
+- **graph**: color tasks by urgency
+
+### Fixes
+
+- **twh**: capture current status
+
 ## 0.6.0 (2026-01-23)
 
 ### Features
