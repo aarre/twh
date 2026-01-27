@@ -805,19 +805,56 @@ def graph(
                 )
 
 
+TWH_COMMANDS = {"list", "reverse", "tree", "graph"}
+TWH_HELP_ARGS = {"-h", "--help", "--install-completion", "--show-completion"}
+
+
+def should_delegate_to_task(argv: List[str]) -> bool:
+    """
+    Decide whether to forward a command to Taskwarrior.
+
+    Parameters
+    ----------
+    argv : List[str]
+        Command-line arguments excluding the program name.
+
+    Returns
+    -------
+    bool
+        True when the command should be executed by ``task``.
+
+    Examples
+    --------
+    >>> should_delegate_to_task([])
+    True
+    >>> should_delegate_to_task(["project:work"])
+    True
+    >>> should_delegate_to_task(["list"])
+    False
+    >>> should_delegate_to_task(["--help"])
+    False
+    """
+    if not argv:
+        return True
+    first_arg = argv[0]
+    return first_arg not in TWH_COMMANDS and first_arg not in TWH_HELP_ARGS
+
+
 def main():
     """
     Entry point for the twh command.
 
-    If no command is provided, defaults to the 'list' command.
+    If the command is not recognized, delegate to Taskwarrior.
     """
-    # Default to the list command when no explicit subcommand is provided.
-    if len(sys.argv) == 1:
-        sys.argv.append("list")
-    elif sys.argv[1].startswith("-"):
-        sys.argv.insert(1, "list")
-    elif sys.argv[1] == "reverse":
-        sys.argv[1:2] = ["list", "reverse"]
+    argv = sys.argv[1:]
+    if should_delegate_to_task(argv):
+        try:
+            result = subprocess.run(["task", *argv])
+        except FileNotFoundError:
+            print("Error: `task` command not found.", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(result.returncode)
+
     app()
 
 

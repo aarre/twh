@@ -25,3 +25,7 @@ Document every function, class, and module with clear and concise docstrings. Us
 
 Use line comments to explain non-obvious code.
 
+## Project notes
+
+- `twh` delegates unknown commands (including no-arg invocation) to Taskwarrior; only `list`, `reverse`, `tree`, and `graph` are handled internally.
+
