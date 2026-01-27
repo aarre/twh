@@ -1,3 +1,9 @@
+## 0.9.1 (2026-01-27)
+
+### Fixes
+
+- **commitizen**: try to ignore passes-all-unit-test-* tags
+
 ## 0.9.0 (2026-01-27)
 
 ### Features
