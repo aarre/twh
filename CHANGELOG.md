@@ -1,3 +1,9 @@
+## 0.8.0 (2026-01-27)
+
+### Features
+
+- **context/graph**: (1) use default project within context and (2) implement twh graph2 to use graphviz instead of mermaid
+
 ## 0.7.0 (2026-01-27)
 
 ### Features
