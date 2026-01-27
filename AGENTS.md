@@ -27,14 +27,19 @@ Use line comments to explain non-obvious code.
 
 ## Requirements
 
-Among other requirements:
+Already implemented, among other requirements:
 
 * When twh is invoked inside a Taskwarrior context, twh should restrict its output (both lists and graphs, both standard and reverse) according to the Taskwarrior context.
+
+To be implemented:
+
+* Support for creating both forward and reverse dependencies between tasks.
 
 ## Project notes
 
 - `twh` delegates unknown commands (including no-arg invocation) to Taskwarrior; only `list`, `reverse`, `tree`, and `graph` are handled internally.
 - `twh add` augments new tasks with the active Taskwarrior context's `project:` or tag filters (from `context.<name>`), without overriding explicit `project:` or `+tag` arguments, and inserts additions before `--` when present.
 - Running tests directly from the repo root needs `PYTHONPATH=src` (or an editable install) so `import twh` resolves the package.
-- `twh graph2` renders Graphviz output via `dot` when `--png` or `--svg` is used, otherwise prints an ASCII dependency tree; `reverse` flips edge direction.
+- `twh graph2` renders a Graphviz SVG and opens it by default when `dot` is available, falling back to ASCII with `--ascii` or when rendering fails; `reverse` flips edge direction.
+- When running under Cygwin with a Windows Graphviz binary, graph2 converts output paths using `cygpath -w` so `dot` can write into the temp directory.
 

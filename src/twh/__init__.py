@@ -1114,6 +1114,7 @@ def graph2(
         render_graphviz,
     )
     from .taskwarrior import get_tasks_from_taskwarrior
+    from .renderer import open_file, open_in_browser
 
     if mode:
         if mode != "reverse":
@@ -1129,14 +1130,18 @@ def graph2(
     if rankdir not in {"LR", "TB", "BT", "RL"}:
         raise typer.BadParameter("rankdir must be one of LR, TB, BT, or RL.")
 
+    output_dir = get_graph_output_dir()
+    png_path = Path(png) if png else None
+    svg_path = Path(svg) if svg else None
+    if not ascii_only and not png_path and not svg_path:
+        svg_path = output_dir / "tasks-graph2.svg"
+
     edges_list, by_uuid = build_dependency_edges(tasks, reverse=reverse)
 
     if edges:
         for line in format_edge_list(edges_list):
             print(line)
 
-    png_path = Path(png) if png else None
-    svg_path = Path(svg) if svg else None
     wants_render = bool(png_path or svg_path)
     rendered = False
     render_error = None
@@ -1147,8 +1152,10 @@ def graph2(
         if rendered:
             if png_path:
                 print(f"Generated Graphviz PNG: {png_path}")
+                open_file(png_path)
             if svg_path:
                 print(f"Generated Graphviz SVG: {svg_path}")
+                open_in_browser(svg_path)
         elif render_error:
             print(f"twh: {render_error}", file=sys.stderr)
 

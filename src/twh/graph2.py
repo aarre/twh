@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
@@ -342,9 +343,80 @@ def _run_dot(dot: str, dot_source: str, output_path: Path, fmt: str) -> None:
     fmt : str
         Output format (png or svg).
     """
+    output_path_str = _dot_output_path(output_path, dot)
     subprocess.run(
-        [dot, f"-T{fmt}", "-o", str(output_path)],
+        [dot, f"-T{fmt}", "-o", output_path_str],
         input=dot_source,
         text=True,
         check=True,
     )
+
+
+def _dot_output_path(output_path: Path, dot_path: str) -> str:
+    """
+    Convert output paths when invoking Windows Graphviz from Cygwin.
+
+    Parameters
+    ----------
+    output_path : Path
+        Output path for graph rendering.
+    dot_path : str
+        Dot executable path.
+
+    Returns
+    -------
+    str
+        Path string to pass to Graphviz.
+    """
+    if _is_windows_exe_on_cygwin(dot_path):
+        return _cygwin_to_windows_path(output_path)
+    return str(output_path)
+
+
+def _is_windows_exe_on_cygwin(dot_path: str) -> bool:
+    """
+    Check if the Graphviz binary is a Windows executable on Cygwin.
+
+    Parameters
+    ----------
+    dot_path : str
+        Dot executable path.
+
+    Returns
+    -------
+    bool
+        True when running Cygwin with a Windows Graphviz binary.
+    """
+    if not sys.platform.startswith("cygwin"):
+        return False
+    lowered = dot_path.lower()
+    if lowered.startswith("/cygdrive/"):
+        return True
+    return lowered.endswith((".exe", ".cmd", ".bat"))
+
+
+def _cygwin_to_windows_path(path: Path) -> str:
+    """
+    Convert a Cygwin path to a Windows path using cygpath.
+
+    Parameters
+    ----------
+    path : Path
+        Path to convert.
+
+    Returns
+    -------
+    str
+        Windows-style path string.
+    """
+    try:
+        result = subprocess.run(
+            ["cygpath", "-w", str(path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return str(path)
+    converted = result.stdout.strip()
+    return converted or str(path)

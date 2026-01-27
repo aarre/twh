@@ -195,3 +195,53 @@ def test_graph2_doctest_examples():
     """
     results = doctest.testmod(graph2)
     assert results.failed == 0
+
+
+@pytest.mark.parametrize(
+    ("platform", "dot_path", "expect_conversion"),
+    [
+        ("cygwin", "/cygdrive/c/Graphviz/bin/dot.exe", True),
+        ("cygwin", "/cygdrive/c/Users/aarre/scoop/shims/dot", True),
+        ("cygwin", "/usr/bin/dot", False),
+        ("win32", "C:\\Graphviz\\bin\\dot.exe", False),
+    ],
+)
+@pytest.mark.unit
+def test_dot_output_path_conversion(monkeypatch, platform, dot_path, expect_conversion):
+    """
+    Ensure DOT output paths are converted for Windows Graphviz on Cygwin.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture for patching platform behavior.
+    platform : str
+        sys.platform value to simulate.
+    dot_path : str
+        Dot executable path to evaluate.
+    expect_conversion : bool
+        Whether conversion should be applied.
+
+    Returns
+    -------
+    None
+        This test asserts on Cygwin path conversion behavior.
+    """
+    output_path = Path("/tmp/tasks-graph2.svg")
+    monkeypatch.setattr(graph2.sys, "platform", platform)
+
+    if expect_conversion:
+        monkeypatch.setattr(
+            graph2,
+            "_cygwin_to_windows_path",
+            lambda path: "C:\\cygwin64\\tmp\\tasks-graph2.svg",
+        )
+        expected = "C:\\cygwin64\\tmp\\tasks-graph2.svg"
+    else:
+        def unexpected_call(_path):
+            raise AssertionError("Conversion should not be called.")
+
+        monkeypatch.setattr(graph2, "_cygwin_to_windows_path", unexpected_call)
+        expected = str(output_path)
+
+    assert graph2._dot_output_path(output_path, dot_path) == expected

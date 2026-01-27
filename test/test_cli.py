@@ -8,6 +8,12 @@ import sys
 
 import pytest
 import twh
+import twh.renderer as renderer
+import twh.taskwarrior as taskwarrior
+
+GRAPH2_COMMAND = twh.graph2
+
+import twh.graph2 as graph2
 
 
 @pytest.mark.parametrize(
@@ -268,6 +274,168 @@ def test_main_applies_context_to_add(monkeypatch, capsys):
         "twh: project set to work.competitiveness.gloria.grinsector because context is grin"
         in captured.out
     )
+
+
+@pytest.mark.parametrize(
+    ("mode", "expect_reverse"),
+    [
+        (None, False),
+        ("reverse", True),
+    ],
+)
+@pytest.mark.unit
+def test_graph2_defaults_to_svg_and_opens(
+    monkeypatch,
+    tmp_path,
+    capsys,
+    mode,
+    expect_reverse,
+):
+    """
+    Ensure graph2 renders SVG output by default and opens it.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture for patching render helpers.
+    tmp_path : pathlib.Path
+        Temporary directory for output paths.
+    capsys : pytest.CaptureFixture[str]
+        Fixture to capture stdout and stderr.
+    mode : str | None
+        Optional graph2 mode argument.
+    expect_reverse : bool
+        Expected reverse flag passed to edge builder.
+
+    Returns
+    -------
+    None
+        This test asserts on default graph2 rendering behavior.
+    """
+    def run_graph2(**overrides):
+        params = {
+            "mode": None,
+            "reverse": False,
+            "png": None,
+            "svg": None,
+            "ascii_only": False,
+            "edges": False,
+            "rankdir": "LR",
+        }
+        params.update(overrides)
+        GRAPH2_COMMAND(**params)
+
+    tasks = [{"uuid": "a", "description": "Task A"}]
+    monkeypatch.setattr(taskwarrior, "get_tasks_from_taskwarrior", lambda: tasks)
+    monkeypatch.setattr(twh, "get_graph_output_dir", lambda: tmp_path)
+
+    def fake_build_dependency_edges(tasks_arg, reverse=False):
+        assert reverse is expect_reverse
+        return [], {"a": tasks_arg[0]}
+
+    monkeypatch.setattr(graph2, "build_dependency_edges", fake_build_dependency_edges)
+    monkeypatch.setattr(graph2, "generate_dot", lambda *args, **kwargs: "digraph twh {}")
+
+    calls = {}
+
+    def fake_render(dot_source, png_path, svg_path):
+        calls["render"] = (dot_source, png_path, svg_path)
+        return True, None
+
+    monkeypatch.setattr(graph2, "render_graphviz", fake_render)
+
+    ascii_called = {"value": False}
+
+    def fake_ascii(*args, **kwargs):
+        ascii_called["value"] = True
+        return ["ASCII"]
+
+    monkeypatch.setattr(graph2, "ascii_forest", fake_ascii)
+
+    opened = {}
+
+    def fake_open_svg(path):
+        opened["svg"] = path
+
+    monkeypatch.setattr(renderer, "open_in_browser", fake_open_svg)
+    monkeypatch.setattr(renderer, "open_file", lambda path: opened.setdefault("png", path))
+
+    if mode:
+        run_graph2(mode=mode)
+    else:
+        run_graph2()
+
+    captured = capsys.readouterr()
+    expected_svg = tmp_path / "tasks-graph2.svg"
+    assert calls["render"][1] is None
+    assert calls["render"][2] == expected_svg
+    assert opened["svg"] == expected_svg
+    assert "ASCII" not in captured.out
+    assert ascii_called["value"] is False
+
+
+@pytest.mark.parametrize(
+    "render_error",
+    [
+        "Graphviz 'dot' not found on PATH.",
+    ],
+)
+@pytest.mark.unit
+def test_graph2_falls_back_to_ascii_when_render_fails(
+    monkeypatch,
+    tmp_path,
+    capsys,
+    render_error,
+):
+    """
+    Ensure graph2 prints ASCII output if rendering fails.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture for patching render helpers.
+    tmp_path : pathlib.Path
+        Temporary directory for output paths.
+    capsys : pytest.CaptureFixture[str]
+        Fixture to capture stdout and stderr.
+    render_error : str
+        Render error message to simulate.
+
+    Returns
+    -------
+    None
+        This test asserts on ASCII fallback behavior.
+    """
+    def run_graph2():
+        GRAPH2_COMMAND(
+            mode=None,
+            reverse=False,
+            png=None,
+            svg=None,
+            ascii_only=False,
+            edges=False,
+            rankdir="LR",
+        )
+
+    tasks = [{"uuid": "a", "description": "Task A"}]
+    monkeypatch.setattr(taskwarrior, "get_tasks_from_taskwarrior", lambda: tasks)
+    monkeypatch.setattr(twh, "get_graph_output_dir", lambda: tmp_path)
+    monkeypatch.setattr(graph2, "build_dependency_edges", lambda tasks_arg, reverse=False: ([], {"a": tasks_arg[0]}))
+    monkeypatch.setattr(graph2, "generate_dot", lambda *args, **kwargs: "digraph twh {}")
+    monkeypatch.setattr(graph2, "render_graphviz", lambda *args, **kwargs: (False, render_error))
+    monkeypatch.setattr(graph2, "ascii_forest", lambda *args, **kwargs: ["ASCII fallback"])
+
+    def unexpected_open(*_args, **_kwargs):
+        raise AssertionError("Open should not be called when rendering fails.")
+
+    monkeypatch.setattr(renderer, "open_in_browser", unexpected_open)
+    monkeypatch.setattr(renderer, "open_file", unexpected_open)
+
+    run_graph2()
+
+    captured = capsys.readouterr()
+    assert "ASCII fallback" in captured.out
+    assert f"twh: {render_error}" in captured.err
 
 
 @pytest.mark.parametrize(
