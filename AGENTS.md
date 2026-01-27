@@ -1,0 +1,27 @@
+
+# Instructions for codex in the twh repo
+
+## Continuous improvement
+
+Update AGENTS.md whenever you learn something new about the project, including requirements, my preferences, design decisions, techiques that you tried and didn't work, and so on.
+
+## Test-driven development
+
+Use a test-driven development approach for all changes. Ensure that each change is accompanied by a corresponding test case to validate its functionality. The test cases should be placed in the `test` directory. They should be written in advance of the implementation, according to the TDD process. They should use the `pytest` framework. Annotate test classes, methods, and functions with `@pytest.mark.parametrize` to avoid repetition and with `unit`, `integration`, `slow` and other tags to help organize tests and enable selective execution.
+
+Use doctest tests to help explain the intended behavior of functions and classes as well as supplement the pytest tests.
+
+## Code style
+
+Follow the PEP 8 style guide for Python code and all Ruff/Black rules and conventions. Use meaningful variable and function names, and keep functions short and focused on a single responsibility. Avoid excessive use of global variables and prefer encapsulation through classes and objects. Use type hints for function parameters and return types and wherever else they may be applicable to improve code readability and maintainability.
+
+## Documentation
+
+Document the public interface and the reasons for major design decisions in `README.md` and, if necessary, other Markdown files in the repo. Limit the number of other Markdown files to a minimum. There should be a clear rationale for any new Markdown files distinguishing its purpose from the README and evey other file in the repo. This rationale should be documented in the file itself.
+
+Use my own `sley` tool to create literate programming notebooks for the project. A sley doc file for `file.py` should be named `FILE.md` (note the capitalization). When modifying existing doc and src files with sley block makers, be especially careful not to delete, change or reorder existing sley block markers. Doing so will break the link between the doc and src files, making it impossible to generate the doc or src again.
+
+Document every function, class, and module with clear and concise docstrings. Use docstrings to describe the purpose, parameters, and return values of functions and methods. For classes, include a docstring for the class itself, as well as docstrings for each method. Use type hints in docstrings to specify the expected types of parameters and return values. Use NumPy-style docstrings.
+
+Use line comments to explain non-obvious code.
+
