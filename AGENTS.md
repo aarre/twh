@@ -25,7 +25,16 @@ Document every function, class, and module with clear and concise docstrings. Us
 
 Use line comments to explain non-obvious code.
 
+## Requirements
+
+Among other requirements:
+
+* When twh is invoked inside a Taskwarrior context, twh should restrict its output (both lists and graphs, both standard and reverse) according to the Taskwarrior context.
+
 ## Project notes
 
 - `twh` delegates unknown commands (including no-arg invocation) to Taskwarrior; only `list`, `reverse`, `tree`, and `graph` are handled internally.
+- `twh add` augments new tasks with the active Taskwarrior context's `project:` or tag filters (from `context.<name>`), without overriding explicit `project:` or `+tag` arguments, and inserts additions before `--` when present.
+- Running tests directly from the repo root needs `PYTHONPATH=src` (or an editable install) so `import twh` resolves the package.
+- `twh graph2` renders Graphviz output via `dot` when `--png` or `--svg` is used, otherwise prints an ASCII dependency tree; `reverse` flips edge direction.
 

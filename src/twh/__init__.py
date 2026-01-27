@@ -4,6 +4,7 @@ Hierarchical view of Taskwarrior tasks by dependency.
 """
 
 import json
+import shlex
 import tempfile
 import subprocess
 import sys
@@ -33,10 +34,269 @@ def get_taskwarrior_setting(key: str) -> Optional[str]:
             text=True,
             check=True
         )
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return None
     value = result.stdout.strip()
     return value if value else None
+
+
+def normalize_context_name(context_name: Optional[str]) -> Optional[str]:
+    """
+    Normalize Taskwarrior context names, treating "none" as inactive.
+
+    Parameters
+    ----------
+    context_name : Optional[str]
+        Raw context name value from Taskwarrior.
+
+    Returns
+    -------
+    Optional[str]
+        Normalized context name, or None when no context is active.
+
+    Examples
+    --------
+    >>> normalize_context_name("work")
+    'work'
+    >>> normalize_context_name("none") is None
+    True
+    >>> normalize_context_name("  ") is None
+    True
+    """
+    if context_name is None:
+        return None
+    name = context_name.strip()
+    if not name or name.lower() == "none":
+        return None
+    return name
+
+
+def get_active_context_name() -> Optional[str]:
+    """
+    Return the active Taskwarrior context name, if any.
+
+    Returns
+    -------
+    Optional[str]
+        Active context name or None when no context is active.
+    """
+    for key in ("rc.context", "context"):
+        value = get_taskwarrior_setting(key)
+        if value is None:
+            continue
+        return normalize_context_name(value)
+    return None
+
+
+def get_context_definition(context_name: str) -> Optional[str]:
+    """
+    Resolve the Taskwarrior context definition for a given context.
+
+    Parameters
+    ----------
+    context_name : str
+        Name of the Taskwarrior context.
+
+    Returns
+    -------
+    Optional[str]
+        Context definition string, if available.
+    """
+    for key in (f"context.{context_name}", f"rc.context.{context_name}"):
+        value = get_taskwarrior_setting(key)
+        if value:
+            return value.strip()
+    return None
+
+
+def parse_context_filters(context_definition: str) -> Tuple[Optional[str], List[str]]:
+    """
+    Extract project and positive tags from a context definition.
+
+    Parameters
+    ----------
+    context_definition : str
+        Taskwarrior context definition string.
+
+    Returns
+    -------
+    Tuple[Optional[str], List[str]]
+        Project name (if defined) and a list of tag names.
+
+    Examples
+    --------
+    >>> parse_context_filters("project:work +alpha +beta")
+    ('work', ['alpha', 'beta'])
+    >>> parse_context_filters("+home -waiting")
+    (None, ['home'])
+    >>> parse_context_filters("tag:alpha project:ops")
+    ('ops', ['alpha'])
+    """
+    project = None
+    tags: List[str] = []
+    seen_tags = set()
+
+    for token in shlex.split(context_definition):
+        if token.startswith("project:"):
+            value = token[len("project:"):]
+            if value:
+                project = value
+            continue
+        if token.startswith("+") and len(token) > 1:
+            tag = token[1:]
+            if tag not in seen_tags:
+                tags.append(tag)
+                seen_tags.add(tag)
+            continue
+        if token.startswith("tag:") or token.startswith("tags:"):
+            _, value = token.split(":", 1)
+            if value and value not in seen_tags:
+                tags.append(value)
+                seen_tags.add(value)
+    return project, tags
+
+
+def parse_add_attributes(args: List[str]) -> Tuple[Optional[str], Set[str]]:
+    """
+    Parse task add arguments for existing project and tags.
+
+    Parameters
+    ----------
+    args : List[str]
+        Arguments passed after the ``add`` command.
+
+    Returns
+    -------
+    Tuple[Optional[str], Set[str]]
+        Project name and set of tags already provided.
+    """
+    project = None
+    tags: Set[str] = set()
+
+    for arg in args:
+        if arg == "--":
+            break
+        if arg.startswith("project:"):
+            value = arg[len("project:"):]
+            if value:
+                project = value
+            continue
+        if arg.startswith("+") and len(arg) > 1:
+            # Taskwarrior treats +tag tokens as tag filters/assignments.
+            tags.add(arg[1:])
+            continue
+        if arg.startswith("tag:") or arg.startswith("tags:"):
+            _, value = arg.split(":", 1)
+            if value:
+                tags.add(value)
+    return project, tags
+
+
+def insert_additions_before_double_dash(argv: List[str], additions: List[str]) -> List[str]:
+    """
+    Insert new arguments before a ``--`` delimiter, if present.
+
+    Parameters
+    ----------
+    argv : List[str]
+        Command arguments to modify.
+    additions : List[str]
+        Arguments to insert.
+
+    Returns
+    -------
+    List[str]
+        Updated argument list with additions inserted safely.
+    """
+    if "--" in argv:
+        index = argv.index("--")
+        return argv[:index] + additions + argv[index:]
+    return argv + additions
+
+
+def format_context_message(
+    context_name: str,
+    project: Optional[str],
+    tags: List[str],
+) -> Optional[str]:
+    """
+    Build an informational message describing context-based additions.
+
+    Parameters
+    ----------
+    context_name : str
+        Active context name.
+    project : Optional[str]
+        Project name added from the context.
+    tags : List[str]
+        Tag names added from the context.
+
+    Returns
+    -------
+    Optional[str]
+        Message to display, or None when nothing was added.
+    """
+    if not project and not tags:
+        return None
+
+    parts: List[str] = []
+    if project:
+        parts.append(f"project set to {project}")
+    if tags:
+        label = "tag" if len(tags) == 1 else "tags"
+        parts.append(f"{label} set to {', '.join(tags)}")
+    return f"twh: {'; '.join(parts)} because context is {context_name}"
+
+
+def apply_context_to_add_args(argv: List[str]) -> Tuple[List[str], Optional[str]]:
+    """
+    Append context-derived project or tags to ``task add`` arguments.
+
+    Parameters
+    ----------
+    argv : List[str]
+        Command-line arguments excluding the program name.
+
+    Returns
+    -------
+    Tuple[List[str], Optional[str]]
+        Updated arguments and an informational message, if applicable.
+    """
+    if not argv or argv[0] != "add":
+        return argv, None
+
+    context_name = get_active_context_name()
+    if not context_name:
+        return argv, None
+
+    context_definition = get_context_definition(context_name)
+    if not context_definition:
+        return argv, None
+
+    project, tags = parse_context_filters(context_definition)
+    if not project and not tags:
+        return argv, None
+
+    existing_project, existing_tags = parse_add_attributes(argv[1:])
+    additions: List[str] = []
+    added_project = None
+    added_tags: List[str] = []
+
+    if project and not existing_project:
+        additions.append(f"project:{project}")
+        added_project = project
+
+    for tag in tags:
+        if tag not in existing_tags:
+            additions.append(f"+{tag}")
+            added_tags.append(tag)
+
+    if not additions:
+        return argv, None
+
+    updated_args = insert_additions_before_double_dash(argv, additions)
+    message = format_context_message(context_name, added_project, added_tags)
+    return updated_args, message
 
 
 def get_graph_output_dir() -> Path:
@@ -805,7 +1065,99 @@ def graph(
                 )
 
 
-TWH_COMMANDS = {"list", "reverse", "tree", "graph"}
+@app.command()
+def graph2(
+    mode: Optional[str] = typer.Argument(
+        None,
+        help="Use 'reverse' for blocker-first view."
+    ),
+    reverse: bool = typer.Option(
+        False,
+        "--reverse",
+        "-r",
+        help="Show blockers first by reversing edge direction"
+    ),
+    png: Optional[str] = typer.Option(
+        None,
+        "--png",
+        help="Write PNG graph to this path"
+    ),
+    svg: Optional[str] = typer.Option(
+        None,
+        "--svg",
+        help="Write SVG graph to this path"
+    ),
+    ascii_only: bool = typer.Option(
+        False,
+        "--ascii",
+        help="Force ASCII output even when Graphviz is available"
+    ),
+    edges: bool = typer.Option(
+        False,
+        "--edges",
+        help="Print the edge list (uuid -> uuid)"
+    ),
+    rankdir: str = typer.Option(
+        "LR",
+        "--rankdir",
+        help="Graph layout direction (LR, TB, BT, RL)"
+    ),
+):
+    """
+    Generate a Graphviz dependency graph with ASCII fallback.
+    """
+    from .graph2 import (
+        ascii_forest,
+        build_dependency_edges,
+        format_edge_list,
+        generate_dot,
+        render_graphviz,
+    )
+    from .taskwarrior import get_tasks_from_taskwarrior
+
+    if mode:
+        if mode != "reverse":
+            raise typer.BadParameter("Only 'reverse' is supported as a mode.")
+        reverse = True
+
+    tasks = get_tasks_from_taskwarrior()
+    if not tasks:
+        print("No pending tasks found.")
+        return
+
+    rankdir = rankdir.strip().upper()
+    if rankdir not in {"LR", "TB", "BT", "RL"}:
+        raise typer.BadParameter("rankdir must be one of LR, TB, BT, or RL.")
+
+    edges_list, by_uuid = build_dependency_edges(tasks, reverse=reverse)
+
+    if edges:
+        for line in format_edge_list(edges_list):
+            print(line)
+
+    png_path = Path(png) if png else None
+    svg_path = Path(svg) if svg else None
+    wants_render = bool(png_path or svg_path)
+    rendered = False
+    render_error = None
+
+    if wants_render and not ascii_only:
+        dot_source = generate_dot(by_uuid, edges_list, rankdir=rankdir)
+        rendered, render_error = render_graphviz(dot_source, png_path, svg_path)
+        if rendered:
+            if png_path:
+                print(f"Generated Graphviz PNG: {png_path}")
+            if svg_path:
+                print(f"Generated Graphviz SVG: {svg_path}")
+        elif render_error:
+            print(f"twh: {render_error}", file=sys.stderr)
+
+    if ascii_only or not rendered:
+        for line in ascii_forest(edges_list, by_uuid):
+            print(line)
+
+
+TWH_COMMANDS = {"list", "reverse", "tree", "graph", "graph2"}
 TWH_HELP_ARGS = {"-h", "--help", "--install-completion", "--show-completion"}
 
 
@@ -848,6 +1200,9 @@ def main():
     """
     argv = sys.argv[1:]
     if should_delegate_to_task(argv):
+        argv, message = apply_context_to_add_args(argv)
+        if message:
+            print(message)
         try:
             result = subprocess.run(["task", *argv])
         except FileNotFoundError:

@@ -11,6 +11,135 @@ import twh
 
 
 @pytest.mark.parametrize(
+    ("definition", "expected_project", "expected_tags"),
+    [
+        ("project:work", "work", []),
+        ("+home", None, ["home"]),
+        ("project:work +alpha +beta", "work", ["alpha", "beta"]),
+        ("tag:alpha project:ops", "ops", ["alpha"]),
+        ("-waiting +one +one +two", None, ["one", "two"]),
+    ],
+)
+@pytest.mark.unit
+def test_parse_context_filters(definition, expected_project, expected_tags):
+    """
+    Verify context definitions yield the right project and tags.
+
+    Parameters
+    ----------
+    definition : str
+        Context definition string.
+    expected_project : str | None
+        Expected project from the context definition.
+    expected_tags : list[str]
+        Expected tag list from the context definition.
+
+    Returns
+    -------
+    None
+        This test asserts on context parsing behavior.
+    """
+    project, tags = twh.parse_context_filters(definition)
+    assert project == expected_project
+    assert tags == expected_tags
+
+
+@pytest.mark.parametrize(
+    ("argv", "context_name", "context_definition", "expected_args", "expected_message"),
+    [
+        (
+            ["add", "Implement feedback"],
+            "grin",
+            "project:work.competitiveness.gloria.grinsector",
+            ["add", "Implement feedback", "project:work.competitiveness.gloria.grinsector"],
+            "twh: project set to work.competitiveness.gloria.grinsector because context is grin",
+        ),
+        (
+            ["add", "Fix docs"],
+            "docs",
+            "+docs",
+            ["add", "Fix docs", "+docs"],
+            "twh: tag set to docs because context is docs",
+        ),
+        (
+            ["add", "Triage backlog"],
+            "mix",
+            "project:work +alpha +beta",
+            ["add", "Triage backlog", "project:work", "+alpha", "+beta"],
+            "twh: project set to work; tags set to alpha, beta because context is mix",
+        ),
+        (
+            ["add", "Already set", "project:other"],
+            "grin",
+            "project:work",
+            ["add", "Already set", "project:other"],
+            None,
+        ),
+        (
+            ["add", "Already tagged", "+home"],
+            "home",
+            "+home",
+            ["add", "Already tagged", "+home"],
+            None,
+        ),
+        (
+            ["add", "Literal tag", "--", "+home"],
+            "home",
+            "+home",
+            ["add", "Literal tag", "+home", "--", "+home"],
+            "twh: tag set to home because context is home",
+        ),
+        (
+            ["list"],
+            "work",
+            "project:work",
+            ["list"],
+            None,
+        ),
+    ],
+)
+@pytest.mark.unit
+def test_apply_context_to_add_args(
+    monkeypatch,
+    argv,
+    context_name,
+    context_definition,
+    expected_args,
+    expected_message,
+):
+    """
+    Ensure context metadata is applied to add arguments when needed.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture for patching context lookups.
+    argv : list[str]
+        Command args to pass into the helper.
+    context_name : str | None
+        Active context name.
+    context_definition : str | None
+        Context definition filter.
+    expected_args : list[str]
+        Expected argv after applying context.
+    expected_message : str | None
+        Expected informational message, if any.
+
+    Returns
+    -------
+    None
+        This test asserts on add argument augmentation.
+    """
+    monkeypatch.setattr(twh, "get_active_context_name", lambda: context_name)
+    monkeypatch.setattr(twh, "get_context_definition", lambda name: context_definition)
+
+    updated_args, message = twh.apply_context_to_add_args(argv)
+
+    assert updated_args == expected_args
+    assert message == expected_message
+
+
+@pytest.mark.parametrize(
     ("argv", "expected"),
     [
         ([], True),
@@ -20,6 +149,7 @@ import twh
         (["reverse"], False),
         (["tree"], False),
         (["graph"], False),
+        (["graph2"], False),
         (["--help"], False),
     ],
 )
@@ -78,6 +208,7 @@ def test_main_delegates_to_task(monkeypatch, argv, expected_args):
         calls.append(args)
         return subprocess.CompletedProcess(args, 0)
 
+    monkeypatch.setattr(twh, "get_active_context_name", lambda: None)
     monkeypatch.setattr(twh.subprocess, "run", fake_run)
     monkeypatch.setattr(sys, "argv", argv)
 
@@ -88,6 +219,57 @@ def test_main_delegates_to_task(monkeypatch, argv, expected_args):
     assert calls == [expected_args]
 
 
+@pytest.mark.unit
+def test_main_applies_context_to_add(monkeypatch, capsys):
+    """
+    Confirm twh add applies project context before delegating.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture for patching subprocess and context lookups.
+    capsys : pytest.CaptureFixture[str]
+        Fixture to capture stdout and stderr.
+
+    Returns
+    -------
+    None
+        This test asserts on context-aware add behavior.
+    """
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(twh, "get_active_context_name", lambda: "grin")
+    monkeypatch.setattr(
+        twh,
+        "get_context_definition",
+        lambda name: "project:work.competitiveness.gloria.grinsector",
+    )
+    monkeypatch.setattr(twh.subprocess, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["twh", "add", "Implement feedback"])
+
+    with pytest.raises(SystemExit) as excinfo:
+        twh.main()
+
+    assert excinfo.value.code == 0
+    assert calls == [
+        [
+            "task",
+            "add",
+            "Implement feedback",
+            "project:work.competitiveness.gloria.grinsector",
+        ]
+    ]
+    captured = capsys.readouterr()
+    assert (
+        "twh: project set to work.competitiveness.gloria.grinsector because context is grin"
+        in captured.out
+    )
+
+
 @pytest.mark.parametrize(
     "argv",
     [
@@ -95,6 +277,7 @@ def test_main_delegates_to_task(monkeypatch, argv, expected_args):
         ["twh", "reverse"],
         ["twh", "tree"],
         ["twh", "graph"],
+        ["twh", "graph2"],
         ["twh", "--help"],
     ],
 )
