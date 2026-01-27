@@ -40,6 +40,6 @@ To be implemented:
 - `twh` delegates unknown commands (including no-arg invocation) to Taskwarrior; only `list`, `reverse`, `tree`, and `graph` are handled internally.
 - `twh add` augments new tasks with the active Taskwarrior context's `project:` or tag filters (from `context.<name>`), without overriding explicit `project:` or `+tag` arguments, and inserts additions before `--` when present.
 - Running tests directly from the repo root needs `PYTHONPATH=src` (or an editable install) so `import twh` resolves the package.
-- `twh graph2` renders a Graphviz SVG and opens it by default when `dot` is available, falling back to ASCII with `--ascii` or when rendering fails; `reverse` flips edge direction.
+- `twh graph2` renders a Graphviz SVG and opens it by default when `dot` is available, falling back to ASCII with `--ascii` or when rendering fails; nodes mirror Mermaid metadata and coloring, and `reverse` flips edge direction.
 - When running under Cygwin with a Windows Graphviz binary, graph2 converts output paths using `cygpath -w` so `dot` can write into the temp directory.
 

@@ -5,14 +5,35 @@ Graphviz-based dependency graph rendering with ASCII fallback.
 
 from __future__ import annotations
 
+import html
 import shutil
 import subprocess
 import sys
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from .taskwarrior import parse_dependencies
+
+STATUS_COLORS = {
+    "started": "#b7e1b2",
+    "blocked": "#e0e0e0",
+    "normal": "#ffffff",
+}
+URGENCY_PALETTE = [
+    "#2b83ba",
+    "#5aa6d1",
+    "#8dd0e6",
+    "#cfe9f2",
+    "#fee8c8",
+    "#fdbb84",
+    "#f46d43",
+    "#d73027",
+    "#a50026",
+]
+DEFAULT_URGENCY_COLOR = "#cfe9f2"
+URGENCY_OPACITY = 0.35
 
 
 def short_uuid(value: str, length: int = 8) -> str:
@@ -76,6 +97,355 @@ def format_task_label(task: Dict, uuid: str, max_length: int = 80) -> str:
     if len(label) > max_length:
         label = label[: max_length - 3] + "..."
     return label
+
+
+def parse_task_timestamp(value: Optional[str]) -> Optional[datetime]:
+    """
+    Parse a Taskwarrior timestamp string into a datetime.
+
+    Parameters
+    ----------
+    value : Optional[str]
+        Taskwarrior timestamp value.
+
+    Returns
+    -------
+    Optional[datetime]
+        Parsed datetime, or None when parsing fails.
+    """
+    if not value:
+        return None
+    value = str(value).strip()
+    try:
+        if value.endswith("Z"):
+            return datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        return datetime.strptime(value, "%Y%m%dT%H%M%S")
+    except ValueError:
+        return None
+
+
+def format_task_date(value: Optional[str]) -> str:
+    """
+    Format a Taskwarrior timestamp as a date string.
+
+    Parameters
+    ----------
+    value : Optional[str]
+        Taskwarrior timestamp value.
+
+    Returns
+    -------
+    str
+        Date formatted as YYYY-MM-DD, or empty string when missing.
+    """
+    dt = parse_task_timestamp(value)
+    if not dt:
+        return ""
+    return dt.strftime("%Y-%m-%d")
+
+
+def format_urgency_text(task: Dict) -> str:
+    """
+    Format urgency text for display.
+
+    Parameters
+    ----------
+    task : Dict
+        Task payload.
+
+    Returns
+    -------
+    str
+        Urgency label text.
+    """
+    urgency = task.get("urgency")
+    if urgency is None:
+        value = "?"
+    else:
+        try:
+            urgency_num = float(urgency)
+            value = f"{urgency_num:.2f}".rstrip("0").rstrip(".")
+        except (TypeError, ValueError):
+            value = str(urgency)
+    return f"Urg: {value}"
+
+
+def task_state(task: Dict, by_uuid: Dict[str, Dict]) -> str:
+    """
+    Determine task status for rendering.
+
+    Parameters
+    ----------
+    task : Dict
+        Task payload.
+    by_uuid : Dict[str, Dict]
+        Mapping of UUID to task dictionary.
+
+    Returns
+    -------
+    str
+        One of "blocked", "started", or "normal".
+    """
+    if any(dep in by_uuid for dep in parse_dependencies(task.get("depends"))):
+        return "blocked"
+    if task.get("start"):
+        return "started"
+    return "normal"
+
+
+def priority_score(task: Dict) -> float:
+    """
+    Compute a numeric score for urgency/priority ranking.
+
+    Parameters
+    ----------
+    task : Dict
+        Task payload.
+
+    Returns
+    -------
+    float
+        Priority score used for ranking.
+    """
+    urgency = task.get("urgency")
+    if urgency is not None:
+        try:
+            return round(float(urgency), 2)
+        except (TypeError, ValueError):
+            pass
+    priority = str(task.get("priority", "")).upper()
+    mapping = {"H": 3.0, "M": 2.0, "L": 1.0}
+    return mapping.get(priority, 0.0)
+
+
+def hex_to_rgb(value: str) -> Tuple[int, int, int]:
+    """
+    Convert a hex color string to RGB.
+
+    Parameters
+    ----------
+    value : str
+        Hex color (e.g., "#ff0000").
+
+    Returns
+    -------
+    Tuple[int, int, int]
+        RGB tuple.
+    """
+    value = value.lstrip("#")
+    return int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
+
+
+def rgb_to_hex(rgb: Tuple[int, int, int]) -> str:
+    """
+    Convert an RGB tuple to a hex color string.
+
+    Parameters
+    ----------
+    rgb : Tuple[int, int, int]
+        RGB values.
+
+    Returns
+    -------
+    str
+        Hex color string.
+    """
+    return "#{:02x}{:02x}{:02x}".format(*rgb)
+
+
+def lerp(a: int, b: int, t: float) -> int:
+    """
+    Linearly interpolate between two integers.
+
+    Parameters
+    ----------
+    a : int
+        Start value.
+    b : int
+        End value.
+    t : float
+        Interpolation value between 0 and 1.
+
+    Returns
+    -------
+    int
+        Interpolated integer.
+    """
+    return int(round(a + (b - a) * t))
+
+
+def interpolate_palette(palette: List[str], t: float) -> Tuple[int, int, int]:
+    """
+    Interpolate a color palette for a position.
+
+    Parameters
+    ----------
+    palette : List[str]
+        List of hex colors.
+    t : float
+        Position from 0 to 1.
+
+    Returns
+    -------
+    Tuple[int, int, int]
+        Interpolated RGB color.
+    """
+    if t <= 0:
+        return hex_to_rgb(palette[0])
+    if t >= 1:
+        return hex_to_rgb(palette[-1])
+    pos = t * (len(palette) - 1)
+    idx = int(pos)
+    frac = pos - idx
+    c1 = hex_to_rgb(palette[idx])
+    c2 = hex_to_rgb(palette[idx + 1])
+    return (
+        lerp(c1[0], c2[0], frac),
+        lerp(c1[1], c2[1], frac),
+        lerp(c1[2], c2[2], frac),
+    )
+
+
+def blend_with_white(rgb: Tuple[int, int, int], opacity: float) -> Tuple[int, int, int]:
+    """
+    Blend an RGB color with white for a given opacity.
+
+    Parameters
+    ----------
+    rgb : Tuple[int, int, int]
+        Base RGB color.
+    opacity : float
+        Opacity of the base color.
+
+    Returns
+    -------
+    Tuple[int, int, int]
+        Blended RGB color.
+    """
+    return tuple(
+        int(round(255 * (1 - opacity) + channel * opacity))
+        for channel in rgb
+    )
+
+
+def build_urgency_color_map(by_uuid: Dict[str, Dict]) -> Dict[str, str]:
+    """
+    Build urgency colors for each task based on relative priority.
+
+    Parameters
+    ----------
+    by_uuid : Dict[str, Dict]
+        Mapping of UUID to task dictionary.
+
+    Returns
+    -------
+    Dict[str, str]
+        Mapping of UUID to hex color.
+    """
+    if not by_uuid:
+        return {}
+    scores = [priority_score(task) for task in by_uuid.values()]
+    unique_scores = sorted(set(scores))
+    rank_map = {score: idx for idx, score in enumerate(unique_scores)}
+    rank_denom = max(len(unique_scores) - 1, 1)
+    colors: Dict[str, str] = {}
+
+    for uuid, task in by_uuid.items():
+        score = priority_score(task)
+        rank = rank_map.get(score, 0)
+        t = rank / rank_denom if rank_denom else 0.0
+        base = interpolate_palette(URGENCY_PALETTE, t)
+        blended = blend_with_white(base, URGENCY_OPACITY)
+        colors[uuid] = rgb_to_hex(blended)
+
+    return colors
+
+
+def truncate_text(value: str, max_length: int) -> str:
+    """
+    Truncate text to a maximum length with ellipsis.
+
+    Parameters
+    ----------
+    value : str
+        Text to truncate.
+    max_length : int
+        Maximum length.
+
+    Returns
+    -------
+    str
+        Truncated text.
+    """
+    if len(value) <= max_length:
+        return value
+    return value[: max_length - 3] + "..."
+
+
+def sanitize_html(value: str) -> str:
+    """
+    Escape text for Graphviz HTML labels.
+
+    Parameters
+    ----------
+    value : str
+        Text to escape.
+
+    Returns
+    -------
+    str
+        Escaped HTML text.
+    """
+    return html.escape(value, quote=True)
+
+
+def build_html_label(
+    task: Dict,
+    uuid: str,
+    urgency_color: str,
+    status_color: str,
+    max_length: int,
+) -> str:
+    """
+    Build a Graphviz HTML label matching Mermaid metadata.
+
+    Parameters
+    ----------
+    task : Dict
+        Task payload.
+    uuid : str
+        Task UUID.
+    urgency_color : str
+        Hex color for the urgency bar.
+    status_color : str
+        Hex color for the status panel.
+    max_length : int
+        Maximum description length.
+
+    Returns
+    -------
+    str
+        HTML label string.
+    """
+    description = str(task.get("description", "")).strip() or uuid
+    description = sanitize_html(truncate_text(description, max_length))
+    task_id = task.get("id")
+    id_text = f"ID: {task_id}" if task_id is not None else "ID: ?"
+    id_text = sanitize_html(id_text)
+    due_value = format_task_date(task.get("due"))
+    due_text = sanitize_html(f"Due: {due_value}") if due_value else ""
+    urgency_text = sanitize_html(format_urgency_text(task))
+
+    meta_lines = f'<FONT POINT-SIZE="9">{id_text}</FONT>'
+    if due_text:
+        meta_lines += f'<BR/><FONT POINT-SIZE="9">{due_text}</FONT>'
+
+    return (
+        '<TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4">'
+        f'<TR><TD BGCOLOR="{urgency_color}" ALIGN="LEFT"><B>{urgency_text}</B></TD></TR>'
+        f'<TR><TD BGCOLOR="{status_color}" ALIGN="LEFT">{description}<BR/>{meta_lines}</TD></TR>'
+        "</TABLE>"
+    )
 
 
 def build_dependency_edges(
@@ -270,14 +640,24 @@ def generate_dot(
     lines = [
         "digraph twh {",
         f"  rankdir={rankdir};",
-        "  node [shape=box, fontsize=10];",
+        '  node [shape=plain, fontsize=10, fontname="Verdana"];',
     ]
+
+    urgency_colors = build_urgency_color_map(by_uuid)
 
     for uuid in sorted(by_uuid.keys()):
         task = by_uuid[uuid]
-        label = format_task_label(task, uuid, max_length=max_label_length)
-        label = escape_dot_label(label)
-        lines.append(f'  "{uuid}" [label="{label}"];')
+        urgency_color = urgency_colors.get(uuid, DEFAULT_URGENCY_COLOR)
+        status = task_state(task, by_uuid)
+        status_color = STATUS_COLORS.get(status, STATUS_COLORS["normal"])
+        label = build_html_label(
+            task,
+            uuid,
+            urgency_color,
+            status_color,
+            max_label_length,
+        )
+        lines.append(f'  "{uuid}" [label=<{label}>];')
 
     for source, target in edges:
         lines.append(f'  "{source}" -> "{target}";')

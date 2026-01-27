@@ -157,6 +157,51 @@ def test_generate_dot_contains_edges(edges, expected_substrings):
 
 
 @pytest.mark.unit
+def test_generate_dot_includes_mermaid_metadata_and_colors():
+    """
+    Verify DOT labels include urgency, status colors, and due dates.
+
+    Returns
+    -------
+    None
+        This test asserts on Mermaid-style metadata in Graphviz output.
+    """
+    by_uuid = {
+        "a": {
+            "uuid": "a",
+            "id": 1,
+            "description": "Task A",
+            "urgency": 1.0,
+            "due": "20250120T120000Z",
+        },
+        "b": {
+            "uuid": "b",
+            "id": 2,
+            "description": "Task B",
+            "depends": "a",
+        },
+        "c": {
+            "uuid": "c",
+            "id": 3,
+            "description": "Task C",
+            "start": "20250121T120000Z",
+        },
+    }
+    dot_source = graph2.generate_dot(by_uuid, [("b", "a")], rankdir="LR")
+
+    assert "Urg:" in dot_source
+    assert "ID: 1" in dot_source
+    assert "Due: 2025-01-20" in dot_source
+    assert "#b7e1b2" in dot_source
+    assert "#e0e0e0" in dot_source
+    assert "#ffffff" in dot_source
+
+    urgency_colors = graph2.build_urgency_color_map(by_uuid)
+    for color in urgency_colors.values():
+        assert color in dot_source
+
+
+@pytest.mark.unit
 def test_render_graphviz_returns_false_when_dot_missing(monkeypatch, tmp_path):
     """
     Render should fail gracefully when dot is unavailable.

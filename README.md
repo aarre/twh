@@ -26,7 +26,9 @@ By default, `twh graph` writes `/tmp/tasks.mmd` and `/tmp/tasks.csv`, then rende
 Graph nodes use a two-tier layout: an urgency bar (rank-based colors, rounded to 2 decimals) and a status panel with ID, task name, and due date, colored by status (started/blocked/normal).
 
 `twh graph2` renders a Graphviz-based dependency graph to
-`/tmp/tasks-graph2.svg` and opens it by default (requires Graphviz `dot`). It
+`/tmp/tasks-graph2.svg` and opens it by default (requires Graphviz `dot`). Node
+labels mirror the Mermaid view: an urgency bar with rank-based colors plus a
+status panel that includes ID, description, due date, and status coloring. It
 falls back to an ASCII tree when Graphviz is unavailable or when `--ascii` is
 set. Use `--png` or `--svg` to customize output paths, `--rankdir` to change
 layout direction, and `--edges` to print the raw edge list.
