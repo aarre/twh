@@ -970,111 +970,6 @@ def graph(
         False,
         "--reverse",
         "-r",
-        help="Show most-depended-upon tasks at top level (reverse view)"
-    ),
-    output: Optional[str] = typer.Option(
-        None,
-        "--output",
-        "-o",
-        help="Output path for Mermaid file (default: /tmp/tasks.mmd)"
-    ),
-    csv: Optional[str] = typer.Option(
-        None,
-        "--csv",
-        "-c",
-        help="Output path for CSV export (default: /tmp/tasks.csv)"
-    ),
-    render: bool = typer.Option(
-        True,
-        "--render/--no-render",
-        help="Render Mermaid to SVG and open it in a browser"
-    ),
-    png: bool = typer.Option(
-        False,
-        "--png",
-        help="Render to PNG instead of SVG"
-    ),
-):
-    """
-    Generate Mermaid flowchart of task dependencies.
-
-    Creates a Mermaid diagram showing task dependencies, writes outputs to
-    /tmp by default, and renders to SVG (open in browser) unless --png is set.
-    """
-    from .graph import get_tasks_from_taskwarrior, create_task_graph
-
-    # Get tasks
-    tasks = get_tasks_from_taskwarrior()
-
-    if not tasks:
-        print("No pending tasks found.")
-        return
-
-    if mode:
-        if mode != "reverse":
-            raise typer.BadParameter("Only 'reverse' is supported as a mode.")
-        reverse = True
-
-    # Set default output paths
-    output_dir = get_graph_output_dir()
-    output_mmd = Path(output) if output else output_dir / "tasks.mmd"
-    output_csv = Path(csv) if csv else output_dir / "tasks.csv"
-
-    # Generate graph
-    print(f"Generating Mermaid graph: {output_mmd}")
-    mermaid_content = create_task_graph(
-        tasks,
-        output_mmd=output_mmd,
-        output_csv=output_csv,
-        reverse=reverse
-    )
-
-    print(f"Generated Mermaid file: {output_mmd}")
-    print(f"Generated CSV file: {output_csv}")
-
-    # Render output if requested
-    if render:
-        from .renderer import render_mermaid_to_png, render_mermaid_to_svg, open_file, open_in_browser
-
-        if png:
-            png_path = output_mmd.with_suffix('.png')
-            print(f"Rendering to PNG: {png_path}")
-
-            try:
-                render_mermaid_to_png(output_mmd, png_path)
-                print(f"Successfully rendered to: {png_path}")
-                open_file(png_path)
-            except Exception as e:
-                print(f"Error rendering to PNG: {e}", file=sys.stderr)
-                print(
-                    "You can view the Mermaid file in a Mermaid-compatible editor "
-                    "(e.g., VS Code with a Mermaid extension, or https://mermaid.live/)."
-                )
-        else:
-            svg_path = output_mmd.with_suffix('.svg')
-            print(f"Rendering to SVG: {svg_path}")
-            try:
-                render_mermaid_to_svg(output_mmd, svg_path)
-                print(f"Successfully rendered to: {svg_path}")
-                open_in_browser(svg_path)
-            except Exception as e:
-                print(f"Error rendering to SVG: {e}", file=sys.stderr)
-                print(
-                    "You can view the Mermaid file in a Mermaid-compatible editor "
-                    "(e.g., VS Code with a Mermaid extension, or https://mermaid.live/)."
-                )
-
-
-@app.command()
-def graph2(
-    mode: Optional[str] = typer.Argument(
-        None,
-        help="Use 'reverse' for blocker-first view."
-    ),
-    reverse: bool = typer.Option(
-        False,
-        "--reverse",
-        "-r",
         help="Show blockers first by reversing edge direction"
     ),
     png: Optional[str] = typer.Option(
@@ -1106,14 +1001,13 @@ def graph2(
     """
     Generate a Graphviz dependency graph with ASCII fallback.
     """
-    from .graph2 import (
+    from .graph import (
         ascii_forest,
         build_dependency_edges,
         format_edge_list,
         generate_dot,
         render_graphviz,
     )
-    from .taskwarrior import get_tasks_from_taskwarrior
     from .renderer import open_file, open_in_browser
 
     if mode:
@@ -1134,7 +1028,7 @@ def graph2(
     png_path = Path(png) if png else None
     svg_path = Path(svg) if svg else None
     if not ascii_only and not png_path and not svg_path:
-        svg_path = output_dir / "tasks-graph2.svg"
+        svg_path = output_dir / "tasks-graph.svg"
 
     edges_list, by_uuid = build_dependency_edges(tasks, reverse=reverse)
 
@@ -1164,7 +1058,7 @@ def graph2(
             print(line)
 
 
-TWH_COMMANDS = {"list", "reverse", "tree", "graph", "graph2"}
+TWH_COMMANDS = {"list", "reverse", "tree", "graph"}
 TWH_HELP_ARGS = {"-h", "--help", "--install-completion", "--show-completion"}
 
 

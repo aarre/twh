@@ -32,10 +32,10 @@ pytest --cov=twh
 Tests for the hierarchical list view functionality
 
 ### `test_graph.py`
-Tests for the Mermaid graph generation module
+Tests for the Graphviz graph generation module
 
 ### `test_integration.py`
-Integration tests for complete workflows
+Integration tests for Graphviz DOT output
 
 ## Test Coverage
 

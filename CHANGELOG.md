@@ -2,7 +2,7 @@
 
 ### Features
 
-- **context/graph**: (1) use default project within context and (2) implement twh graph2 to use graphviz instead of mermaid
+- **context/graph**: (1) use default project within context and (2) switch twh graph to Graphviz instead of Mermaid
 
 ## 0.7.0 (2026-01-27)
 
