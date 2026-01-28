@@ -30,10 +30,7 @@ Use line comments to explain non-obvious code.
 Already implemented, among other requirements:
 
 * When twh is invoked inside a Taskwarrior context, twh should restrict its output (both lists and graphs, both standard and reverse) according to the Taskwarrior context.
-
-To be implemented:
-
-* Support for creating both forward and reverse dependencies between tasks.
+* `twh` supports a synthetic `blocks` field for `add`/`modify`, translating it into Taskwarrior `depends` updates without new UDAs.
 
 ## Project notes
 
@@ -42,4 +39,5 @@ To be implemented:
 - Running tests directly from the repo root needs `PYTHONPATH=src` (or an editable install) so `import twh` resolves the package.
 - `twh graph` renders a Graphviz SVG and opens it by default when `dot` is available, falling back to ASCII with `--ascii` or when rendering fails; nodes mirror the legacy graph metadata and coloring, and `reverse` flips edge direction.
 - When running under Cygwin with a Windows Graphviz binary, graph converts output paths using `cygpath -w` so `dot` can write into the temp directory.
+- `twh` implements `blocks` by exporting the blocking tasks to resolve UUIDs and then adding `depends:+<uuid>` to each blocked task.
 

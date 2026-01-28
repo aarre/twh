@@ -1,3 +1,9 @@
+## 0.9.2 (2026-01-27)
+
+### Features
+
+- **twh**: add a `blocks` argument that translates into Taskwarrior `depends`
+
 ## 0.9.1 (2026-01-27)
 
 ### Fixes

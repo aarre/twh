@@ -4,6 +4,7 @@ Hierarchical view of Taskwarrior tasks by dependency.
 """
 
 import json
+import re
 import shlex
 import tempfile
 import subprocess
@@ -15,7 +16,11 @@ from typing import Dict, List, Set, Optional, Tuple
 
 import typer
 
-from .taskwarrior import get_tasks_from_taskwarrior, parse_dependencies
+from .taskwarrior import (
+    get_tasks_from_taskwarrior,
+    parse_dependencies,
+    read_tasks_from_json,
+)
 
 
 def build_tree_prefix(ancestor_has_more: List[bool]) -> str:
@@ -297,6 +302,200 @@ def apply_context_to_add_args(argv: List[str]) -> Tuple[List[str], Optional[str]
     updated_args = insert_additions_before_double_dash(argv, additions)
     message = format_context_message(context_name, added_project, added_tags)
     return updated_args, message
+
+
+def extract_blocks_tokens(args: List[str]) -> Tuple[List[str], List[str]]:
+    """
+    Extract blocks targets from task arguments.
+
+    Parameters
+    ----------
+    args : List[str]
+        Raw task arguments.
+
+    Returns
+    -------
+    Tuple[List[str], List[str]]
+        Arguments with blocks tokens removed and the block targets.
+
+    Examples
+    --------
+    >>> extract_blocks_tokens(["blocks:32"])
+    ([], ['32'])
+    >>> extract_blocks_tokens(["blocks", "32", "project:work"])
+    (['project:work'], ['32'])
+    >>> extract_blocks_tokens(["blocks:32", "--", "blocks:99"])
+    (['--', 'blocks:99'], ['32'])
+    """
+    cleaned: List[str] = []
+    blocks: List[str] = []
+    index = 0
+
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            cleaned.extend(args[index:])
+            break
+        if arg.startswith("blocks:"):
+            value = arg[len("blocks:"):]
+            if value:
+                blocks.extend(split_csv(value))
+            else:
+                cleaned.append(arg)
+            index += 1
+            continue
+        if arg == "blocks":
+            if index + 1 < len(args) and args[index + 1] != "--":
+                value = args[index + 1]
+                if value:
+                    blocks.extend(split_csv(value))
+                    index += 2
+                    continue
+            cleaned.append(arg)
+            index += 1
+            continue
+        cleaned.append(arg)
+        index += 1
+
+    return cleaned, blocks
+
+
+def parse_created_task_id(output: str) -> Optional[str]:
+    """
+    Extract the created task ID from task add output.
+
+    Parameters
+    ----------
+    output : str
+        Standard output from ``task add``.
+
+    Returns
+    -------
+    Optional[str]
+        The created task ID if it can be determined.
+
+    Examples
+    --------
+    >>> parse_created_task_id("Created task 45.")
+    '45'
+    >>> parse_created_task_id("No task created") is None
+    True
+    """
+    if not output:
+        return None
+    match = re.search(r"Created task (\d+)", output)
+    if match:
+        return match.group(1)
+    matches = re.findall(r"\b(\d+)\b", output)
+    if matches:
+        return matches[-1]
+    return None
+
+
+def run_task_command(
+    args: List[str],
+    capture_output: bool = False,
+) -> subprocess.CompletedProcess:
+    """
+    Execute a taskwarrior command.
+
+    Parameters
+    ----------
+    args : List[str]
+        Taskwarrior arguments excluding the ``task`` executable.
+    capture_output : bool, optional
+        Whether to capture stdout/stderr (default: False).
+
+    Returns
+    -------
+    subprocess.CompletedProcess
+        Completed process result from ``subprocess.run``.
+    """
+    kwargs = {"check": False}
+    if capture_output:
+        kwargs.update({"capture_output": True, "text": True})
+    return subprocess.run(["task", *args], **kwargs)
+
+
+def apply_blocks_relationship(argv: List[str]) -> int:
+    """
+    Translate blocks arguments into depends relationships.
+
+    Parameters
+    ----------
+    argv : List[str]
+        Taskwarrior arguments excluding the program name.
+
+    Returns
+    -------
+    int
+        Exit code from taskwarrior execution.
+    """
+    cleaned_args, blocks = extract_blocks_tokens(argv)
+    if not blocks:
+        result = run_task_command(argv)
+        return result.returncode
+
+    blocks = list(dict.fromkeys(blocks))
+
+    if cleaned_args and cleaned_args[0] == "add":
+        add_result = run_task_command(cleaned_args, capture_output=True)
+        # Preserve Taskwarrior output when capture is required for parsing.
+        if add_result.stdout:
+            print(add_result.stdout, end="")
+        if add_result.stderr:
+            print(add_result.stderr, end="", file=sys.stderr)
+        if add_result.returncode != 0:
+            return add_result.returncode
+
+        created_id = parse_created_task_id(add_result.stdout or "")
+        if not created_id:
+            print("twh: unable to parse created task id for blocks.", file=sys.stderr)
+            return 1
+
+        exit_code = add_result.returncode
+        for target in blocks:
+            result = run_task_command([target, "modify", f"depends:+{created_id}"])
+            if result.returncode != 0:
+                exit_code = result.returncode
+        return exit_code
+
+    if "modify" not in cleaned_args:
+        print("twh: blocks is only supported with add or modify.", file=sys.stderr)
+        return 1
+
+    modify_index = cleaned_args.index("modify")
+    filter_args = cleaned_args[:modify_index]
+    change_args = cleaned_args[modify_index + 1:]
+
+    export_result = run_task_command([*filter_args, "export"], capture_output=True)
+    if export_result.returncode != 0:
+        if export_result.stderr:
+            print(export_result.stderr, end="", file=sys.stderr)
+        return export_result.returncode
+
+    tasks = read_tasks_from_json(export_result.stdout or "")
+    blocking_uuids = [
+        task["uuid"] for task in tasks
+        if isinstance(task, dict) and task.get("uuid")
+    ]
+    blocking_uuids = list(dict.fromkeys(blocking_uuids))
+    if not blocking_uuids:
+        print("twh: no tasks found to apply blocks.", file=sys.stderr)
+        return 1
+
+    if change_args:
+        modify_result = run_task_command(cleaned_args)
+        if modify_result.returncode != 0:
+            return modify_result.returncode
+
+    exit_code = 0
+    for target in blocks:
+        for uuid in blocking_uuids:
+            result = run_task_command([target, "modify", f"depends:+{uuid}"])
+            if result.returncode != 0:
+                exit_code = result.returncode
+    return exit_code
 
 
 def get_graph_output_dir() -> Path:
@@ -1105,11 +1304,11 @@ def main():
         if message:
             print(message)
         try:
-            result = subprocess.run(["task", *argv])
+            exit_code = apply_blocks_relationship(argv)
         except FileNotFoundError:
             print("Error: `task` command not found.", file=sys.stderr)
             sys.exit(1)
-        sys.exit(result.returncode)
+        sys.exit(exit_code)
 
     app()
 

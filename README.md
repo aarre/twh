@@ -19,6 +19,12 @@ and `twh context grin`, running `twh add "Implement feedback"` appends
 message. This context-driven behavior
 persists until `twh context none` clears the context.
 
+`twh` also supports a synthetic `blocks` field on delegated `add` and `modify`
+commands. `twh add "New task" blocks:32` creates the new task and then updates
+task 32 with `depends:+<new-id>`. `twh 31 modify blocks 32` makes task 32 depend
+on task 31. The relationship is stored in Taskwarrior's `depends` field; no UDAs
+are required.
+
 `twh graph` renders a Graphviz-based dependency graph to `/tmp/tasks-graph.svg`
 and opens it by default (requires Graphviz `dot`). Node labels include an
 urgency bar with rank-based colors plus a status panel that lists ID,
