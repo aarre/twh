@@ -1,3 +1,13 @@
+## 0.9.3 (2026-01-27)
+
+### Features
+
+- **twh**: add `twh simple` report with annotation counts via Taskwarrior config
+
+### Fixes
+
+- **twh**: disable pager for `twh simple` on WSL unless `TWH_SIMPLE_PAGER=1`
+
 ## 0.9.2 (2026-01-27)
 
 ### Features

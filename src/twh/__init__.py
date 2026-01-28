@@ -4,6 +4,7 @@ Hierarchical view of Taskwarrior tasks by dependency.
 """
 
 import json
+import os
 import re
 import shlex
 import tempfile
@@ -302,6 +303,300 @@ def apply_context_to_add_args(argv: List[str]) -> Tuple[List[str], Optional[str]
     updated_args = insert_additions_before_double_dash(argv, additions)
     message = format_context_message(context_name, added_project, added_tags)
     return updated_args, message
+
+
+def parse_default_command(command: Optional[str]) -> str:
+    """
+    Parse the report name from the default Taskwarrior command.
+
+    Parameters
+    ----------
+    command : Optional[str]
+        Raw ``default.command`` value.
+
+    Returns
+    -------
+    str
+        Report name, defaulting to "next".
+
+    Examples
+    --------
+    >>> parse_default_command("next")
+    'next'
+    >>> parse_default_command("next +work")
+    'next'
+    >>> parse_default_command(None)
+    'next'
+    """
+    report_name, _ = parse_default_command_tokens(command)
+    return report_name
+
+
+def parse_default_command_tokens(command: Optional[str]) -> Tuple[str, List[str]]:
+    """
+    Parse the default report name and filters from ``default.command``.
+
+    Parameters
+    ----------
+    command : Optional[str]
+        Raw ``default.command`` value.
+
+    Returns
+    -------
+    Tuple[str, List[str]]
+        Report name and remaining default filters.
+
+    Examples
+    --------
+    >>> parse_default_command_tokens("next +work")
+    ('next', ['+work'])
+    >>> parse_default_command_tokens("next")
+    ('next', [])
+    >>> parse_default_command_tokens(None)
+    ('next', [])
+    """
+    if not command:
+        return "next", []
+    tokens = shlex.split(command)
+    if not tokens:
+        return "next", []
+    return tokens[0], tokens[1:]
+
+
+def get_default_report_name() -> str:
+    """
+    Return the default Taskwarrior report name.
+
+    Returns
+    -------
+    str
+        Report name derived from ``default.command``.
+    """
+    return parse_default_command(get_taskwarrior_setting("default.command"))
+
+
+def get_default_command_tokens() -> Tuple[str, List[str]]:
+    """
+    Return the default report name and filters from Taskwarrior.
+
+    Returns
+    -------
+    Tuple[str, List[str]]
+        Report name and default filters.
+    """
+    return parse_default_command_tokens(get_taskwarrior_setting("default.command"))
+
+
+def is_wsl() -> bool:
+    """
+    Return True when running inside WSL.
+
+    Returns
+    -------
+    bool
+        True if WSL environment variables or kernel markers are present.
+    """
+    if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
+        return True
+    try:
+        with open("/proc/version", "r", encoding="utf-8") as handle:
+            return "microsoft" in handle.read().lower()
+    except OSError:
+        return False
+
+
+def should_disable_simple_pager() -> bool:
+    """
+    Determine whether to disable the pager for ``twh simple``.
+
+    Returns
+    -------
+    bool
+        True when the pager should be disabled.
+    """
+    override = os.environ.get("TWH_SIMPLE_PAGER", "").strip().lower()
+    if override in {"1", "true", "yes", "on"}:
+        return False
+    return is_wsl()
+
+
+def replace_description_column(columns: str) -> str:
+    """
+    Replace description columns with ``description.count``.
+
+    Parameters
+    ----------
+    columns : str
+        Comma-separated column list.
+
+    Returns
+    -------
+    str
+        Updated column list with annotation counts.
+
+    Examples
+    --------
+    >>> replace_description_column("id,description")
+    'id,description.count'
+    >>> replace_description_column("description.truncated,project")
+    'description.count,project'
+    """
+    updated: List[str] = []
+    for column in split_csv(columns):
+        if column.lower().startswith("description"):
+            updated.append("description.count")
+        else:
+            updated.append(column)
+    return ",".join(updated)
+
+
+def parse_report_settings(report_name: str, output: str) -> Dict[str, str]:
+    """
+    Parse ``task show report.<name>`` output into a settings map.
+
+    Parameters
+    ----------
+    report_name : str
+        Report name to extract.
+    output : str
+        Output from ``task show report.<name>``.
+
+    Returns
+    -------
+    Dict[str, str]
+        Mapping of setting suffix to value.
+
+    Examples
+    --------
+    >>> output = "report.next.columns id,description\\nreport.next.sort urgency-"
+    >>> parse_report_settings("next", output)
+    {'columns': 'id,description', 'sort': 'urgency-'}
+    """
+    prefix = f"report.{report_name}."
+    settings: Dict[str, str] = {}
+    for line in output.splitlines():
+        line = line.strip()
+        if not line or not line.startswith(prefix):
+            continue
+        parts = line.split(None, 1)
+        key = parts[0]
+        value = parts[1].strip() if len(parts) > 1 else ""
+        suffix = key[len(prefix):]
+        settings[suffix] = value
+    return settings
+
+
+def get_report_settings(report_name: str) -> Dict[str, str]:
+    """
+    Read report settings from Taskwarrior.
+
+    Parameters
+    ----------
+    report_name : str
+        Report name to read.
+
+    Returns
+    -------
+    Dict[str, str]
+        Mapping of setting suffix to value.
+    """
+    result = run_task_command(
+        ["show", f"report.{report_name}"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        return {}
+    return parse_report_settings(report_name, result.stdout or "")
+
+
+def configure_report(report_name: str, settings: Dict[str, str]) -> bool:
+    """
+    Persist report settings to Taskwarrior.
+
+    Parameters
+    ----------
+    report_name : str
+        Report name to configure.
+    settings : Dict[str, str]
+        Mapping of setting suffix to value.
+
+    Returns
+    -------
+    bool
+        True when configuration succeeds.
+    """
+    for key, value in settings.items():
+        if not value:
+            continue
+        result = run_task_command(
+            ["config", f"report.{report_name}.{key}", value],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            if result.stderr:
+                print(result.stderr, end="", file=sys.stderr)
+            return False
+    return True
+
+
+def ensure_simple_report(base_report: str) -> bool:
+    """
+    Ensure the ``simple`` report exists with annotation counts.
+
+    Parameters
+    ----------
+    base_report : str
+        Report name to copy from.
+
+    Returns
+    -------
+    bool
+        True when the report exists or is created.
+    """
+    if get_taskwarrior_setting("report.simple.columns"):
+        return True
+
+    settings = get_report_settings(base_report)
+    if not settings:
+        print("twh: unable to read base report settings.", file=sys.stderr)
+        return False
+
+    columns = settings.get("columns")
+    if not columns:
+        columns = get_taskwarrior_setting(f"report.{base_report}.columns")
+
+    if not columns:
+        print("twh: base report has no columns defined.", file=sys.stderr)
+        return False
+
+    settings["columns"] = replace_description_column(columns)
+    return configure_report("simple", settings)
+
+
+def run_simple_report(args: List[str]) -> int:
+    """
+    Run the Taskwarrior ``simple`` report with filters.
+
+    Parameters
+    ----------
+    args : List[str]
+        Filters and modifiers to pass through.
+
+    Returns
+    -------
+    int
+        Exit code from Taskwarrior.
+    """
+    base_report, default_filters = get_default_command_tokens()
+    if not ensure_simple_report(base_report):
+        return 1
+    task_args = [*default_filters, *args, "simple"]
+    if should_disable_simple_pager():
+        task_args = ["rc.pager=cat", *task_args]
+    result = run_task_command(task_args)
+    return result.returncode
 
 
 def extract_blocks_tokens(args: List[str]) -> Tuple[List[str], List[str]]:
@@ -1159,6 +1454,22 @@ def tree_alias(
     list_tasks(reverse=reverse)
 
 
+@app.command(
+    "simple",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def simple(ctx: typer.Context):
+    """
+    Display the Taskwarrior simple report with annotation counts.
+    """
+    try:
+        exit_code = run_simple_report(ctx.args)
+    except FileNotFoundError:
+        print("Error: `task` command not found.", file=sys.stderr)
+        raise typer.Exit(code=1)
+    raise typer.Exit(code=exit_code)
+
+
 @app.command()
 def graph(
     mode: Optional[str] = typer.Argument(
@@ -1257,7 +1568,7 @@ def graph(
             print(line)
 
 
-TWH_COMMANDS = {"list", "reverse", "tree", "graph"}
+TWH_COMMANDS = {"list", "reverse", "tree", "graph", "simple"}
 TWH_HELP_ARGS = {"-h", "--help", "--install-completion", "--show-completion"}
 
 

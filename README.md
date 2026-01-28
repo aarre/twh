@@ -5,6 +5,7 @@ Hierarchical Taskwarrior views and Graphviz dependency graphs.
 ```bash
 twh list
 twh list reverse
+twh simple
 twh graph
 twh graph reverse
 ```
@@ -25,8 +26,18 @@ task 32 with `depends:+<new-id>`. `twh 31 modify blocks 32` makes task 32 depend
 on task 31. The relationship is stored in Taskwarrior's `depends` field; no UDAs
 are required.
 
+`twh simple` wraps Taskwarrior reports and shows annotation counts instead of
+inline annotation text. On first run it creates `report.simple` by copying the
+default Taskwarrior report (from `default.command`) and replacing the
+`description` column with `description.count`, then it applies any default
+filters from `default.command` plus your own filters before running the report.
+On WSL it disables Taskwarrior's pager by default to avoid hangs; set
+`TWH_SIMPLE_PAGER=1` to keep paging.
+
 `twh graph` renders a Graphviz-based dependency graph to `/tmp/tasks-graph.svg`
-and opens it by default (requires Graphviz `dot`). Node labels include an
+and opens it by default (requires Graphviz `dot`). On WSL, the SVG opens in
+Windows Edge by default, copying the file into the Windows TEMP directory when
+needed. Node labels include an
 urgency bar with rank-based colors plus a status panel that lists ID,
 description, due date, and status coloring (started/blocked/normal). It falls
 back to an ASCII tree when Graphviz is unavailable or when `--ascii` is set.

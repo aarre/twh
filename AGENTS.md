@@ -37,7 +37,13 @@ Already implemented, among other requirements:
 - `twh` delegates unknown commands (including no-arg invocation) to Taskwarrior; only `list`, `reverse`, `tree`, and `graph` are handled internally.
 - `twh add` augments new tasks with the active Taskwarrior context's `project:` or tag filters (from `context.<name>`), without overriding explicit `project:` or `+tag` arguments, and inserts additions before `--` when present.
 - Running tests directly from the repo root needs `PYTHONPATH=src` (or an editable install) so `import twh` resolves the package.
+- Prefer Python 3.12 for local virtual environments; `uv venv` defaults to newer Python versions (for example 3.14) and may create a venv without pip, so use `python3.12 -m venv .venv` or `uv venv --python=python3.12`, and if pip is missing run `python -m ensurepip --upgrade`.
+- If you recreate the venv with `uv venv`, the `uv` CLI installed in the previous venv is removed; reinstall it in the new venv (or use `python -m pip install -e .` directly).
+- An editable install inside a venv only exposes `twh` in that venv (`.venv/bin/twh`); for universal access add that bin dir to `PATH` or install outside the venv (for example with `pipx` or `python3.12 -m pip install --user -e .`).
+- On Ubuntu with PEP 668, `/usr/bin/python3.12 -m pip install --user pipx` may fail as externally-managed; install `pipx` inside a venv and run `python -m pipx install -e /mnt/d/local/src/py/twh` to create `~/.local/bin/twh`.
 - `twh graph` renders a Graphviz SVG and opens it by default when `dot` is available, falling back to ASCII with `--ascii` or when rendering fails; nodes mirror the legacy graph metadata and coloring, and `reverse` flips edge direction.
 - When running under Cygwin with a Windows Graphviz binary, graph converts output paths using `cygpath -w` so `dot` can write into the temp directory.
 - `twh` implements `blocks` by exporting the blocking tasks to resolve UUIDs and then adding `depends:+<uuid>` to each blocked task.
+- `twh simple` creates a Taskwarrior `report.simple` (if missing) by copying the default report and replacing the description column with `description.count`, then runs `task` with default-command filters plus user filters; on WSL it disables the pager unless `TWH_SIMPLE_PAGER=1` is set.
+- On WSL, `open_in_browser` converts paths with `wslpath -w`, copies UNC (Linux filesystem) paths into the Windows TEMP directory, and launches Windows Edge directly via `msedge.exe` (falling back to `cmd.exe /c start microsoft-edge:<file-url>` when Edge cannot be located).
 
