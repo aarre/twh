@@ -1,4 +1,10 @@
 
+## 0.9.4 (2026-01-29)
+
+### Performance
+
+- **twh**: improve performance, especially for `twh simple`
+
 ## 0.9.3 (2026-01-29)
 
 ### Fixes
