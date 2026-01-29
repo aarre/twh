@@ -61,7 +61,7 @@ def test_apply_blocks_add(monkeypatch):
     """
     calls = []
 
-    def fake_run_task(args, capture_output=False):
+    def fake_run_task(args, capture_output=False, **_kwargs):
         calls.append((args, capture_output))
         if args[0] == "add":
             return subprocess.CompletedProcess(args, 0, stdout="Created task 45.\n", stderr="")
@@ -95,7 +95,7 @@ def test_apply_blocks_modify(monkeypatch):
     """
     calls = []
 
-    def fake_run_task(args, capture_output=False):
+    def fake_run_task(args, capture_output=False, **_kwargs):
         calls.append((args, capture_output))
         if args[-1] == "export":
             payload = '[{"uuid":"uuid-1","id":31}]'
@@ -130,7 +130,7 @@ def test_apply_blocks_modify_with_other_changes(monkeypatch):
     """
     calls = []
 
-    def fake_run_task(args, capture_output=False):
+    def fake_run_task(args, capture_output=False, **_kwargs):
         calls.append((args, capture_output))
         if args[-1] == "export":
             payload = '[{"uuid":"uuid-31","id":31}]'

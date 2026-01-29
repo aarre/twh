@@ -6,7 +6,9 @@
 
 ### Fixes
 
-- **twh**: disable pager for `twh simple` on WSL unless `TWH_SIMPLE_PAGER=1`
+- **twh**: disable pager for `twh simple` on WSL unless `TWH_SIMPLE_PAGER=1`, stripping `limit:page` to avoid interactive pauses
+- **twh**: strip `limit:page` from default filters when running `twh simple` on WSL
+- **twh**: run `twh simple` non-interactively on WSL (pager/confirmation/hooks off, stdin closed)
 
 ## 0.9.2 (2026-01-27)
 

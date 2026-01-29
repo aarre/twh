@@ -13,7 +13,7 @@ import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Set, Optional, Tuple
+from typing import Callable, Dict, List, Set, Optional, Tuple
 
 import typer
 
@@ -384,6 +384,10 @@ def get_default_command_tokens() -> Tuple[str, List[str]]:
     Tuple[str, List[str]]
         Report name and default filters.
     """
+    if should_disable_simple_pager():
+        return parse_default_command_tokens(
+            get_taskwarrior_setting_simple("default.command")
+        )
     return parse_default_command_tokens(get_taskwarrior_setting("default.command"))
 
 
@@ -420,6 +424,24 @@ def should_disable_simple_pager() -> bool:
     return is_wsl()
 
 
+def simple_task_overrides() -> List[str]:
+    """
+    Build Taskwarrior overrides for ``twh simple``.
+
+    Returns
+    -------
+    List[str]
+        List of ``rc.`` overrides.
+    """
+    if not should_disable_simple_pager():
+        return []
+    return [
+        "rc.pager=cat",
+        "rc.confirmation=off",
+        "rc.hooks=off",
+    ]
+
+
 def replace_description_column(columns: str) -> str:
     """
     Replace description columns with ``description.count``.
@@ -448,6 +470,80 @@ def replace_description_column(columns: str) -> str:
         else:
             updated.append(column)
     return ",".join(updated)
+
+
+def strip_limit_page(value: str) -> str:
+    """
+    Remove ``limit:page`` tokens from a report filter string.
+
+    Parameters
+    ----------
+    value : str
+        Report filter string.
+
+    Returns
+    -------
+    str
+        Filter string without ``limit:page``.
+
+    Examples
+    --------
+    >>> strip_limit_page("status:pending limit:page")
+    'status:pending'
+    >>> strip_limit_page("limit:page")
+    ''
+    """
+    tokens = [token for token in shlex.split(value) if token != "limit:page"]
+    return " ".join(tokens)
+
+
+def strip_limit_page_tokens(tokens: List[str]) -> List[str]:
+    """
+    Remove ``limit:page`` from a list of tokens.
+
+    Parameters
+    ----------
+    tokens : List[str]
+        Tokens to filter.
+
+    Returns
+    -------
+    List[str]
+        Tokens without ``limit:page``.
+
+    Examples
+    --------
+    >>> strip_limit_page_tokens(["status:pending", "limit:page"])
+    ['status:pending']
+    """
+    return [token for token in tokens if token != "limit:page"]
+
+
+def run_simple_task_command(
+    args: List[str],
+    capture_output: bool = False,
+) -> subprocess.CompletedProcess:
+    """
+    Run Taskwarrior for ``twh simple`` with non-interactive safeguards.
+
+    Parameters
+    ----------
+    args : List[str]
+        Taskwarrior arguments excluding the executable.
+    capture_output : bool, optional
+        Whether to capture stdout/stderr (default: False).
+
+    Returns
+    -------
+    subprocess.CompletedProcess
+        Completed Taskwarrior process.
+    """
+    task_args = [*simple_task_overrides(), *args]
+    return run_task_command(
+        task_args,
+        capture_output=capture_output,
+        stdin=subprocess.DEVNULL,
+    )
 
 
 def parse_report_settings(report_name: str, output: str) -> Dict[str, str]:
@@ -486,7 +582,10 @@ def parse_report_settings(report_name: str, output: str) -> Dict[str, str]:
     return settings
 
 
-def get_report_settings(report_name: str) -> Dict[str, str]:
+def get_report_settings(
+    report_name: str,
+    runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
+) -> Dict[str, str]:
     """
     Read report settings from Taskwarrior.
 
@@ -500,7 +599,9 @@ def get_report_settings(report_name: str) -> Dict[str, str]:
     Dict[str, str]
         Mapping of setting suffix to value.
     """
-    result = run_task_command(
+    if runner is None:
+        runner = run_task_command
+    result = runner(
         ["show", f"report.{report_name}"],
         capture_output=True,
     )
@@ -511,7 +612,11 @@ def get_report_settings(report_name: str) -> Dict[str, str]:
     return parse_report_settings(report_name, result.stdout or "")
 
 
-def configure_report(report_name: str, settings: Dict[str, str]) -> bool:
+def configure_report(
+    report_name: str,
+    settings: Dict[str, str],
+    runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
+) -> bool:
     """
     Persist report settings to Taskwarrior.
 
@@ -527,10 +632,12 @@ def configure_report(report_name: str, settings: Dict[str, str]) -> bool:
     bool
         True when configuration succeeds.
     """
+    if runner is None:
+        runner = run_task_command
     for key, value in settings.items():
         if not value:
             continue
-        result = run_task_command(
+        result = runner(
             ["config", f"report.{report_name}.{key}", value],
             capture_output=True,
         )
@@ -555,24 +662,45 @@ def ensure_simple_report(base_report: str) -> bool:
     bool
         True when the report exists or is created.
     """
-    if get_taskwarrior_setting("report.simple.columns"):
+    existing_columns = get_taskwarrior_setting_simple("report.simple.columns")
+    if existing_columns:
+        if should_disable_simple_pager():
+            existing_filter = get_taskwarrior_setting_simple("report.simple.filter")
+            if existing_filter and "limit:page" in existing_filter:
+                updated_filter = strip_limit_page(existing_filter)
+                if updated_filter != existing_filter:
+                    return configure_report(
+                        "simple",
+                        {"filter": updated_filter},
+                        runner=run_simple_task_command,
+                    )
         return True
 
-    settings = get_report_settings(base_report)
+    settings = get_report_settings(
+        base_report,
+        runner=run_simple_task_command,
+    )
     if not settings:
         print("twh: unable to read base report settings.", file=sys.stderr)
         return False
 
     columns = settings.get("columns")
     if not columns:
-        columns = get_taskwarrior_setting(f"report.{base_report}.columns")
+        columns = get_taskwarrior_setting_simple(f"report.{base_report}.columns")
 
     if not columns:
         print("twh: base report has no columns defined.", file=sys.stderr)
         return False
 
     settings["columns"] = replace_description_column(columns)
-    return configure_report("simple", settings)
+    if should_disable_simple_pager() and settings.get("filter"):
+        if "limit:page" in settings["filter"]:
+            settings["filter"] = strip_limit_page(settings["filter"])
+    return configure_report(
+        "simple",
+        settings,
+        runner=run_simple_task_command,
+    )
 
 
 def run_simple_report(args: List[str]) -> int:
@@ -592,10 +720,11 @@ def run_simple_report(args: List[str]) -> int:
     base_report, default_filters = get_default_command_tokens()
     if not ensure_simple_report(base_report):
         return 1
-    task_args = [*default_filters, *args, "simple"]
     if should_disable_simple_pager():
-        task_args = ["rc.pager=cat", *task_args]
-    result = run_task_command(task_args)
+        default_filters = strip_limit_page_tokens(default_filters)
+        args = strip_limit_page_tokens(args)
+    task_args = [*default_filters, *args, "simple"]
+    result = run_simple_task_command(task_args)
     return result.returncode
 
 
@@ -690,6 +819,7 @@ def parse_created_task_id(output: str) -> Optional[str]:
 def run_task_command(
     args: List[str],
     capture_output: bool = False,
+    stdin: Optional[int] = None,
 ) -> subprocess.CompletedProcess:
     """
     Execute a taskwarrior command.
@@ -709,7 +839,30 @@ def run_task_command(
     kwargs = {"check": False}
     if capture_output:
         kwargs.update({"capture_output": True, "text": True})
+    if stdin is not None:
+        kwargs["stdin"] = stdin
     return subprocess.run(["task", *args], **kwargs)
+
+
+def get_taskwarrior_setting_simple(key: str) -> Optional[str]:
+    """
+    Read a Taskwarrior setting for ``twh simple``.
+
+    Parameters
+    ----------
+    key : str
+        Setting key to read.
+
+    Returns
+    -------
+    Optional[str]
+        Setting value or None if unavailable.
+    """
+    result = run_simple_task_command(["_get", key], capture_output=True)
+    if result.returncode != 0:
+        return None
+    value = (result.stdout or "").strip()
+    return value if value else None
 
 
 def apply_blocks_relationship(argv: List[str]) -> int:

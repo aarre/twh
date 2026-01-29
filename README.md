@@ -31,8 +31,10 @@ inline annotation text. On first run it creates `report.simple` by copying the
 default Taskwarrior report (from `default.command`) and replacing the
 `description` column with `description.count`, then it applies any default
 filters from `default.command` plus your own filters before running the report.
-On WSL it disables Taskwarrior's pager by default to avoid hangs; set
-`TWH_SIMPLE_PAGER=1` to keep paging.
+On WSL it disables Taskwarrior's pager, confirmations, and hooks for this
+command to avoid hangs; set `TWH_SIMPLE_PAGER=1` to keep paging. When paging is
+disabled, any `limit:page` filter is removed from the simple report and from
+default filters, and `twh simple` runs with stdin closed to prevent blocking.
 
 `twh graph` renders a Graphviz-based dependency graph to `/tmp/tasks-graph.svg`
 and opens it by default (requires Graphviz `dot`). On WSL, the SVG opens in
