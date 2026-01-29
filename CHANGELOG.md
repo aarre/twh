@@ -1,25 +1,22 @@
-## 0.9.3 (2026-01-27)
-
-### Features
-
-- **twh**: add `twh simple` report with annotation counts via Taskwarrior config
+## Unreleased
 
 ### Fixes
 
-- **twh**: disable pager for `twh simple` on WSL unless `TWH_SIMPLE_PAGER=1`, stripping `limit:page` to avoid interactive pauses
-- **twh**: strip `limit:page` from default filters when running `twh simple` on WSL
-- **twh**: run `twh simple` non-interactively on WSL (pager/confirmation/hooks off, stdin closed)
+- **pyproject**: comment out `ignored_tag_formats` in pyproject.toml
+- **pyproject**: change pyproject to `changelog_incremental = false`
+- **pyproject**: correct version number in pyproject.toml
 
-## 0.9.2 (2026-01-27)
+## 0.9.1 (2026-01-29)
 
 ### Features
 
-- **twh**: add a `blocks` argument that translates into Taskwarrior `depends`
-
-## 0.9.1 (2026-01-27)
+- **twh**: open edge not inkscape, create simple report
+- **blocks**: add a blocks relation inverse to depends
 
 ### Fixes
 
+- **pyproject**: force annotated tags to keep commitizen happy
+- **simple**: make `twh simple` work at last
 - **commitizen**: try to ignore passes-all-unit-test-* tags
 
 ## 0.9.0 (2026-01-27)
@@ -34,7 +31,7 @@
 
 ### Features
 
-- **context/graph**: (1) use default project within context and (2) switch twh graph to Graphviz instead of Mermaid
+- **context/graph**: (1) use default project within context and (2) implement twh graph2 to use graphviz instead of mermaid
 
 ## 0.7.0 (2026-01-27)
 
@@ -52,17 +49,11 @@
 
 ### Features
 
-- **graph**: render nodes as urgency bar + status panel
-- **graph**: show urgency values in the top bar with rank-based gradient colors
-- **graph**: show task ID, name, and due date in the status panel
-- **graph**: color status panels by state (started/blocked/normal)
-- **graph**: map urgency across the full gradient range with fixed opacity
-- **graph**: parse string urgency values and round to 2 decimals before ranking
+- **graph**: color graph nodes by status
 
 ### Fixes
 
 - **graph**: fix orphan tasks in graph view
-- **list**: fall back to default columns/labels when report config is empty
 
 ## 0.5.0 (2026-01-23)
 
