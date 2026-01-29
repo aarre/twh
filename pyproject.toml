@@ -37,9 +37,9 @@ version_files = [
     "pyproject.toml:version"
 ]
 tag_format = "$version"
-ignored_tag_formats = [
-    "passes-all-unit-tests-*",
-]
+#ignored_tag_formats = [
+#    "passes-all-unit-tests-*",
+#]
 update_changelog_on_bump = true
 changelog_file = "CHANGELOG.md"
 changelog_incremental = false
