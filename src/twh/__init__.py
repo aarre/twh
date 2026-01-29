@@ -15,8 +15,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Set, Optional, Tuple
 
-import typer
-
 from .taskwarrior import (
     get_tasks_from_taskwarrior,
     parse_dependencies,
@@ -372,6 +370,8 @@ def get_default_report_name() -> str:
     str
         Report name derived from ``default.command``.
     """
+    if should_disable_simple_pager():
+        return parse_default_command(get_taskwarrior_setting_simple("default.command"))
     return parse_default_command(get_taskwarrior_setting("default.command"))
 
 
@@ -707,6 +707,9 @@ def run_simple_report(args: List[str]) -> int:
     """
     Run the Taskwarrior ``simple`` report with filters.
 
+    The report is executed directly for speed; if it is missing, it is created
+    from the default report and retried.
+
     Parameters
     ----------
     args : List[str]
@@ -717,15 +720,32 @@ def run_simple_report(args: List[str]) -> int:
     int
         Exit code from Taskwarrior.
     """
-    base_report, default_filters = get_default_command_tokens()
+    if should_disable_simple_pager():
+        args = strip_limit_page_tokens(args)
+        existing_filter = get_taskwarrior_setting_simple("report.simple.filter")
+        if existing_filter and "limit:page" in existing_filter:
+            updated_filter = strip_limit_page(existing_filter)
+            if updated_filter != existing_filter:
+                configure_report(
+                    "simple",
+                    {"filter": updated_filter},
+                    runner=run_simple_task_command,
+                )
+    task_args = [*args, "simple"]
+
+    result = run_simple_task_command(task_args)
+    if result.returncode == 0:
+        return 0
+
+    if get_taskwarrior_setting_simple("report.simple.columns"):
+        return result.returncode
+
+    base_report = get_default_report_name()
     if not ensure_simple_report(base_report):
         return 1
-    if should_disable_simple_pager():
-        default_filters = strip_limit_page_tokens(default_filters)
-        args = strip_limit_page_tokens(args)
-    task_args = [*default_filters, *args, "simple"]
-    result = run_simple_task_command(task_args)
-    return result.returncode
+
+    retry = run_simple_task_command(task_args)
+    return retry.returncode
 
 
 def extract_blocks_tokens(args: List[str]) -> Tuple[List[str], List[str]]:
@@ -844,6 +864,24 @@ def run_task_command(
     return subprocess.run(["task", *args], **kwargs)
 
 
+def exec_task_command(args: List[str]) -> int:
+    """
+    Replace the current process with a taskwarrior invocation.
+
+    Parameters
+    ----------
+    args : List[str]
+        Taskwarrior arguments excluding the executable.
+
+    Returns
+    -------
+    int
+        Unreachable return code placeholder.
+    """
+    os.execvp("task", ["task", *args])
+    return 1
+
+
 def get_taskwarrior_setting_simple(key: str) -> Optional[str]:
     """
     Read a Taskwarrior setting for ``twh simple``.
@@ -865,7 +903,10 @@ def get_taskwarrior_setting_simple(key: str) -> Optional[str]:
     return value if value else None
 
 
-def apply_blocks_relationship(argv: List[str]) -> int:
+def apply_blocks_relationship(
+    argv: List[str],
+    exec_task: Optional[Callable[[List[str]], int]] = None,
+) -> int:
     """
     Translate blocks arguments into depends relationships.
 
@@ -873,6 +914,8 @@ def apply_blocks_relationship(argv: List[str]) -> int:
     ----------
     argv : List[str]
         Taskwarrior arguments excluding the program name.
+    exec_task : Callable[[List[str]], int] | None
+        Optional exec-style runner to use when no blocks are present.
 
     Returns
     -------
@@ -881,7 +924,9 @@ def apply_blocks_relationship(argv: List[str]) -> int:
     """
     cleaned_args, blocks = extract_blocks_tokens(argv)
     if not blocks:
-        result = run_task_command(argv)
+        if exec_task is not None:
+            return exec_task(cleaned_args)
+        result = run_task_command(cleaned_args)
         return result.returncode
 
     blocks = list(dict.fromkeys(blocks))
@@ -1546,22 +1591,10 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
                 print()
 
 
-app = typer.Typer(help="Hierarchical views of Taskwarrior tasks")
-
-
-@app.command("list")
 def list_tasks(
-    mode: Optional[str] = typer.Argument(
-        None,
-        help="Use 'reverse' for blocker-first view."
-    ),
-    reverse: bool = typer.Option(
-        False,
-        "--reverse",
-        "-r",
-        help="Show most-depended-upon tasks at top level (reverse view)"
-    )
-):
+    mode: Optional[str] = None,
+    reverse: bool = False,
+) -> None:
     """
     Display Taskwarrior tasks in hierarchical dependency list view.
 
@@ -1576,7 +1609,7 @@ def list_tasks(
 
     if mode:
         if mode != "reverse":
-            raise typer.BadParameter("Only 'reverse' is supported as a mode.")
+            raise ValueError("Only 'reverse' is supported as a mode.")
         reverse = True
 
     lines = build_task_table_lines(tasks, reverse=reverse)
@@ -1584,7 +1617,6 @@ def list_tasks(
         print(line)
 
 
-@app.command("reverse")
 def list_reverse():
     """
     Alias for `twh list reverse`.
@@ -1592,75 +1624,41 @@ def list_reverse():
     list_tasks(mode="reverse")
 
 
-@app.command("tree")
-def tree_alias(
-    reverse: bool = typer.Option(
-        False,
-        "--reverse",
-        "-r",
-        help="Show most-depended-upon tasks at top level (reverse view)"
-    )
-):
+def tree_alias(reverse: bool = False) -> None:
     """
     Alias for `twh list`.
     """
     list_tasks(reverse=reverse)
 
 
-@app.command(
-    "simple",
-    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
-)
-def simple(ctx: typer.Context):
+def simple(args: Optional[List[str]] = None) -> int:
     """
     Display the Taskwarrior simple report with annotation counts.
+
+    Parameters
+    ----------
+    args : Optional[List[str]]
+        Filters and modifiers to pass through.
+
+    Returns
+    -------
+    int
+        Exit code from Taskwarrior.
     """
-    try:
-        exit_code = run_simple_report(ctx.args)
-    except FileNotFoundError:
-        print("Error: `task` command not found.", file=sys.stderr)
-        raise typer.Exit(code=1)
-    raise typer.Exit(code=exit_code)
+    if args is None:
+        args = []
+    return run_simple_report(args)
 
 
-@app.command()
 def graph(
-    mode: Optional[str] = typer.Argument(
-        None,
-        help="Use 'reverse' for blocker-first view."
-    ),
-    reverse: bool = typer.Option(
-        False,
-        "--reverse",
-        "-r",
-        help="Show blockers first by reversing edge direction"
-    ),
-    png: Optional[str] = typer.Option(
-        None,
-        "--png",
-        help="Write PNG graph to this path"
-    ),
-    svg: Optional[str] = typer.Option(
-        None,
-        "--svg",
-        help="Write SVG graph to this path"
-    ),
-    ascii_only: bool = typer.Option(
-        False,
-        "--ascii",
-        help="Force ASCII output even when Graphviz is available"
-    ),
-    edges: bool = typer.Option(
-        False,
-        "--edges",
-        help="Print the edge list (uuid -> uuid)"
-    ),
-    rankdir: str = typer.Option(
-        "LR",
-        "--rankdir",
-        help="Graph layout direction (LR, TB, BT, RL)"
-    ),
-):
+    mode: Optional[str] = None,
+    reverse: bool = False,
+    png: Optional[str] = None,
+    svg: Optional[str] = None,
+    ascii_only: bool = False,
+    edges: bool = False,
+    rankdir: str = "LR",
+) -> None:
     """
     Generate a Graphviz dependency graph with ASCII fallback.
     """
@@ -1675,7 +1673,7 @@ def graph(
 
     if mode:
         if mode != "reverse":
-            raise typer.BadParameter("Only 'reverse' is supported as a mode.")
+            raise ValueError("Only 'reverse' is supported as a mode.")
         reverse = True
 
     tasks = get_tasks_from_taskwarrior()
@@ -1685,7 +1683,7 @@ def graph(
 
     rankdir = rankdir.strip().upper()
     if rankdir not in {"LR", "TB", "BT", "RL"}:
-        raise typer.BadParameter("rankdir must be one of LR, TB, BT, or RL.")
+        raise ValueError("rankdir must be one of LR, TB, BT, or RL.")
 
     output_dir = get_graph_output_dir()
     png_path = Path(png) if png else None
@@ -1719,6 +1717,118 @@ def graph(
     if ascii_only or not rendered:
         for line in ascii_forest(edges_list, by_uuid):
             print(line)
+
+
+def build_app():
+    """
+    Build the Typer app lazily to keep fast-path imports light.
+
+    Returns
+    -------
+    typer.Typer
+        Configured Typer application for the twh CLI.
+    """
+    import typer
+
+    app = typer.Typer(help="Hierarchical views of Taskwarrior tasks")
+
+    @app.command("list")
+    def list_cmd(
+        mode: Optional[str] = typer.Argument(
+            None,
+            help="Use 'reverse' for blocker-first view.",
+        ),
+        reverse: bool = typer.Option(
+            False,
+            "--reverse",
+            "-r",
+            help="Show most-depended-upon tasks at top level (reverse view)",
+        ),
+    ):
+        try:
+            list_tasks(mode=mode, reverse=reverse)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+
+    @app.command("reverse")
+    def reverse_cmd():
+        list_reverse()
+
+    @app.command("tree")
+    def tree_cmd(
+        reverse: bool = typer.Option(
+            False,
+            "--reverse",
+            "-r",
+            help="Show most-depended-upon tasks at top level (reverse view)",
+        ),
+    ):
+        tree_alias(reverse=reverse)
+
+    @app.command(
+        "simple",
+        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    )
+    def simple_cmd(ctx: typer.Context):
+        try:
+            exit_code = run_simple_report(ctx.args)
+        except FileNotFoundError:
+            print("Error: `task` command not found.", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
+    @app.command("graph")
+    def graph_cmd(
+        mode: Optional[str] = typer.Argument(
+            None,
+            help="Use 'reverse' for blocker-first view.",
+        ),
+        reverse: bool = typer.Option(
+            False,
+            "--reverse",
+            "-r",
+            help="Show blockers first by reversing edge direction",
+        ),
+        png: Optional[str] = typer.Option(
+            None,
+            "--png",
+            help="Write PNG graph to this path",
+        ),
+        svg: Optional[str] = typer.Option(
+            None,
+            "--svg",
+            help="Write SVG graph to this path",
+        ),
+        ascii_only: bool = typer.Option(
+            False,
+            "--ascii",
+            help="Force ASCII output even when Graphviz is available",
+        ),
+        edges: bool = typer.Option(
+            False,
+            "--edges",
+            help="Print the edge list (uuid -> uuid)",
+        ),
+        rankdir: str = typer.Option(
+            "LR",
+            "--rankdir",
+            help="Graph layout direction (LR, TB, BT, RL)",
+        ),
+    ):
+        try:
+            graph(
+                mode=mode,
+                reverse=reverse,
+                png=png,
+                svg=svg,
+                ascii_only=ascii_only,
+                edges=edges,
+                rankdir=rankdir,
+            )
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+
+    return app
 
 
 TWH_COMMANDS = {"list", "reverse", "tree", "graph", "simple"}
@@ -1756,6 +1866,23 @@ def should_delegate_to_task(argv: List[str]) -> bool:
     return first_arg not in TWH_COMMANDS and first_arg not in TWH_HELP_ARGS
 
 
+def has_help_args(argv: List[str]) -> bool:
+    """
+    Return True when CLI arguments include a help flag.
+
+    Parameters
+    ----------
+    argv : List[str]
+        Command-line arguments excluding the program name.
+
+    Returns
+    -------
+    bool
+        True when a help flag is present.
+    """
+    return any(arg in TWH_HELP_ARGS for arg in argv)
+
+
 def main():
     """
     Entry point for the twh command.
@@ -1767,13 +1894,22 @@ def main():
         argv, message = apply_context_to_add_args(argv)
         if message:
             print(message)
+            sys.stdout.flush()
         try:
-            exit_code = apply_blocks_relationship(argv)
+            exit_code = apply_blocks_relationship(argv, exec_task=exec_task_command)
+        except FileNotFoundError:
+            print("Error: `task` command not found.", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(exit_code)
+    if argv and argv[0] == "simple" and not has_help_args(argv):
+        try:
+            exit_code = run_simple_report(argv[1:])
         except FileNotFoundError:
             print("Error: `task` command not found.", file=sys.stderr)
             sys.exit(1)
         sys.exit(exit_code)
 
+    app = build_app()
     app()
 
 

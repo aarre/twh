@@ -12,6 +12,7 @@ twh graph reverse
 
 Commands that `twh` doesn't recognize are forwarded to Taskwarrior, so `twh`
 behaves like `task` and `twh add "Next task"` runs `task add "Next task"`.
+Delegated commands replace the `twh` process with `task` to keep overhead low.
 When a Taskwarrior context is active and its definition includes `project:` or
 tag filters, `twh add` automatically applies those values to new tasks. For
 example, after `twh context define grin project:work.competitiveness.gloria.grinsector`
@@ -29,12 +30,11 @@ are required.
 `twh simple` wraps Taskwarrior reports and shows annotation counts instead of
 inline annotation text. On first run it creates `report.simple` by copying the
 default Taskwarrior report (from `default.command`) and replacing the
-`description` column with `description.count`, then it applies any default
-filters from `default.command` plus your own filters before running the report.
-On WSL it disables Taskwarrior's pager, confirmations, and hooks for this
-command to avoid hangs; set `TWH_SIMPLE_PAGER=1` to keep paging. When paging is
-disabled, any `limit:page` filter is removed from the simple report and from
-default filters, and `twh simple` runs with stdin closed to prevent blocking.
+`description` column with `description.count`, then runs the report directly
+for speed. On WSL it disables Taskwarrior's pager, confirmations, and hooks for
+this command to avoid hangs; set `TWH_SIMPLE_PAGER=1` to keep paging. When
+paging is disabled, any `limit:page` filter is removed from the simple report
+and `twh simple` runs with stdin closed to prevent blocking.
 
 `twh graph` renders a Graphviz-based dependency graph to `/tmp/tasks-graph.svg`
 and opens it by default (requires Graphviz `dot`). On WSL, the SVG opens in

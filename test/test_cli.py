@@ -181,11 +181,11 @@ def test_should_delegate_to_task(argv, expected):
 @pytest.mark.parametrize(
     ("argv", "expected_args"),
     [
-        (["twh"], ["task"]),
-        (["twh", "project:work"], ["task", "project:work"]),
-        (["twh", "add", "Next task"], ["task", "add", "Next task"]),
+        (["twh"], []),
+        (["twh", "project:work"], ["project:work"]),
+        (["twh", "add", "Next task"], ["add", "Next task"]),
         (["twh", "21", "modify", "project:personal", "depends:20"],
-         ["task", "21", "modify", "project:personal", "depends:20"]),
+         ["21", "modify", "project:personal", "depends:20"]),
     ],
 )
 @pytest.mark.unit
@@ -209,12 +209,12 @@ def test_main_delegates_to_task(monkeypatch, argv, expected_args):
     """
     calls = []
 
-    def fake_run(args, **kwargs):
+    def fake_exec(args):
         calls.append(args)
-        return subprocess.CompletedProcess(args, 0)
+        return 0
 
     monkeypatch.setattr(twh, "get_active_context_name", lambda: None)
-    monkeypatch.setattr(twh.subprocess, "run", fake_run)
+    monkeypatch.setattr(twh, "exec_task_command", fake_exec)
     monkeypatch.setattr(sys, "argv", argv)
 
     with pytest.raises(SystemExit) as excinfo:
@@ -243,9 +243,9 @@ def test_main_applies_context_to_add(monkeypatch, capsys):
     """
     calls = []
 
-    def fake_run(args, **kwargs):
+    def fake_exec(args):
         calls.append(args)
-        return subprocess.CompletedProcess(args, 0)
+        return 0
 
     monkeypatch.setattr(twh, "get_active_context_name", lambda: "grin")
     monkeypatch.setattr(
@@ -253,7 +253,7 @@ def test_main_applies_context_to_add(monkeypatch, capsys):
         "get_context_definition",
         lambda name: "project:work.competitiveness.gloria.grinsector",
     )
-    monkeypatch.setattr(twh.subprocess, "run", fake_run)
+    monkeypatch.setattr(twh, "exec_task_command", fake_exec)
     monkeypatch.setattr(sys, "argv", ["twh", "add", "Implement feedback"])
 
     with pytest.raises(SystemExit) as excinfo:
@@ -262,7 +262,6 @@ def test_main_applies_context_to_add(monkeypatch, capsys):
     assert excinfo.value.code == 0
     assert calls == [
         [
-            "task",
             "add",
             "Implement feedback",
             "project:work.competitiveness.gloria.grinsector",
@@ -443,7 +442,6 @@ def test_graph_falls_back_to_ascii_when_render_fails(
         ["twh", "list"],
         ["twh", "reverse"],
         ["twh", "tree"],
-        ["twh", "simple"],
         ["twh", "graph"],
         ["twh", "--help"],
     ],
@@ -465,23 +463,103 @@ def test_main_uses_twh_commands(monkeypatch, argv):
     None
         This test asserts on app invocation and no delegation.
     """
-    called = {"app": 0, "task": 0}
+    called = {"app": 0}
 
-    def fake_app():
-        called["app"] += 1
+    def fake_build_app():
+        def fake_app():
+            called["app"] += 1
+        return fake_app
 
-    def fake_run(args, **kwargs):
-        called["task"] += 1
-        return subprocess.CompletedProcess(args, 0)
+    def unexpected_exec(_args):
+        raise AssertionError("Delegation should not occur for twh commands.")
 
-    monkeypatch.setattr(twh, "app", fake_app)
-    monkeypatch.setattr(twh.subprocess, "run", fake_run)
+    monkeypatch.setattr(twh, "build_app", fake_build_app)
+    monkeypatch.setattr(twh, "exec_task_command", unexpected_exec)
     monkeypatch.setattr(sys, "argv", argv)
 
     twh.main()
 
     assert called["app"] == 1
-    assert called["task"] == 0
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_args"),
+    [
+        (["twh", "simple"], []),
+        (["twh", "simple", "+work"], ["+work"]),
+    ],
+)
+@pytest.mark.unit
+def test_main_fast_path_simple(monkeypatch, argv, expected_args):
+    """
+    Ensure twh simple bypasses the Typer app and runs directly.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture for patching dependencies.
+    argv : list[str]
+        Full argv including the program name.
+    expected_args : list[str]
+        Expected filters passed into the simple report runner.
+
+    Returns
+    -------
+    None
+        This test asserts that the simple fast path is used.
+    """
+    calls = []
+
+    def fake_run_simple(args):
+        calls.append(args)
+        return 0
+
+    def unexpected_build_app():
+        raise AssertionError("Typer app should not be built for simple fast path.")
+
+    monkeypatch.setattr(twh, "run_simple_report", fake_run_simple)
+    monkeypatch.setattr(twh, "build_app", unexpected_build_app)
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        twh.main()
+
+    assert excinfo.value.code == 0
+    assert calls == [expected_args]
+
+
+@pytest.mark.unit
+def test_main_simple_help_uses_app(monkeypatch):
+    """
+    Ensure twh simple --help uses the Typer app.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture for patching app creation.
+
+    Returns
+    -------
+    None
+        This test asserts help routing for the simple command.
+    """
+    called = {"app": 0}
+
+    def fake_build_app():
+        def fake_app():
+            called["app"] += 1
+        return fake_app
+
+    def unexpected_simple(_args):
+        raise AssertionError("Simple fast path should be skipped for help.")
+
+    monkeypatch.setattr(twh, "build_app", fake_build_app)
+    monkeypatch.setattr(twh, "run_simple_report", unexpected_simple)
+    monkeypatch.setattr(sys, "argv", ["twh", "simple", "--help"])
+
+    twh.main()
+
+    assert called["app"] == 1
 
 
 @pytest.mark.unit

@@ -309,13 +309,8 @@ def test_run_simple_report_invokes_task(monkeypatch):
     """
     calls = []
 
-    monkeypatch.setattr(
-        twh,
-        "get_default_command_tokens",
-        lambda: ("next", ["+work", "limit:page"]),
-    )
-    monkeypatch.setattr(twh, "ensure_simple_report", lambda _base: True)
     monkeypatch.setattr(twh, "should_disable_simple_pager", lambda: True)
+    monkeypatch.setattr(twh, "get_taskwarrior_setting_simple", lambda _key: None)
 
     def fake_run(args, capture_output=False, **_kwargs):
         calls.append((args, capture_output))
@@ -330,12 +325,53 @@ def test_run_simple_report_invokes_task(monkeypatch):
                 "rc.pager=cat",
                 "rc.confirmation=off",
                 "rc.hooks=off",
-                "+work",
                 "project:work",
                 "simple",
             ],
             False,
         ),
+    ]
+
+
+@pytest.mark.unit
+def test_run_simple_report_creates_missing_report(monkeypatch):
+    """
+    Ensure missing simple report is created and retried.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture for patching task execution.
+
+    Returns
+    -------
+    None
+        This test asserts report creation behavior.
+    """
+    calls = []
+    ensure_calls = []
+
+    def fake_run(args, capture_output=False, **_kwargs):
+        calls.append((args, capture_output))
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(twh, "run_task_command", fake_run)
+    monkeypatch.setattr(twh, "should_disable_simple_pager", lambda: False)
+    monkeypatch.setattr(twh, "get_taskwarrior_setting_simple", lambda _key: None)
+    monkeypatch.setattr(twh, "get_default_report_name", lambda: "next")
+    monkeypatch.setattr(
+        twh,
+        "ensure_simple_report",
+        lambda report: ensure_calls.append(report) or True,
+    )
+
+    assert twh.run_simple_report([]) == 0
+    assert ensure_calls == ["next"]
+    assert calls == [
+        (["simple"], False),
+        (["simple"], False),
     ]
 
 

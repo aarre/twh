@@ -149,3 +149,35 @@ def test_apply_blocks_modify_with_other_changes(monkeypatch):
         (["31", "modify", "project:work"], False),
         (["32", "modify", "depends:+uuid-31"], False),
     ]
+
+
+@pytest.mark.unit
+def test_apply_blocks_relationship_execs_without_blocks(monkeypatch):
+    """
+    Ensure exec fast path is used when no blocks are present.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture for patching task execution.
+
+    Returns
+    -------
+    None
+        This test asserts exec usage for non-blocks commands.
+    """
+    calls = []
+
+    def fake_exec(args):
+        calls.append(args)
+        return 0
+
+    def unexpected_run(*_args, **_kwargs):
+        raise AssertionError("run_task_command should not be used without blocks.")
+
+    monkeypatch.setattr(twh, "run_task_command", unexpected_run)
+
+    exit_code = twh.apply_blocks_relationship(["list"], exec_task=fake_exec)
+
+    assert exit_code == 0
+    assert calls == [["list"]]
