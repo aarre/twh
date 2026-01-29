@@ -42,7 +42,7 @@ ignored_tag_formats = [
 ]
 update_changelog_on_bump = true
 changelog_file = "CHANGELOG.md"
-changelog_incremental = true
+changelog_incremental = false
 bump_message = "bump: version $current_version → $new_version"
 gpg_sign = false
 annotated_tag = true
