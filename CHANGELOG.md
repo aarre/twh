@@ -1,3 +1,9 @@
+## 0.9.3 (2026-01-29)
+
+### Fixes
+
+- **pyproject**: restore `ignored_tag_formats` in `pyproject.toml`
+
 ## 0.9.2 (2026-01-29)
 
 ### Fixes
