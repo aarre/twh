@@ -1,7 +1,8 @@
-## Unreleased
+## 0.9.2 (2026-01-29)
 
 ### Fixes
 
+- **pyproject/changelog**: align version numbers in pyproject and changelog
 - **pyproject**: comment out `ignored_tag_formats` in pyproject.toml
 - **pyproject**: change pyproject to `changelog_incremental = false`
 - **pyproject**: correct version number in pyproject.toml
