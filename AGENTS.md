@@ -46,6 +46,7 @@ Already implemented, among other requirements:
 - `twh` implements `blocks` by exporting the blocking tasks to resolve UUIDs and then adding `depends:+<uuid>` to each blocked task.
 - `twh` delegates to Taskwarrior via `exec` when no internal handling is needed, and builds the Typer app lazily to reduce startup overhead.
 - `twh simple` creates a Taskwarrior `report.simple` (if missing) by copying the default report and replacing the description column with `description.count`, then runs `task simple` directly; on WSL it disables pager/confirmations/hooks unless `TWH_SIMPLE_PAGER=1` is set, strips `limit:page` from the simple report, and runs with stdin closed to avoid interactive pauses.
+- `twh review` inspects pending tasks for missing `imp`, `urg`, `opt`, and `mode` metadata, optionally prompts to fill them with `--wizard`, and recommends the next task using the scoring model; mode filters (`--mode`, `--strict-mode`) and dominance (`dominates` UDA) influence candidate selection.
 - On WSL, `open_in_browser` converts paths with `wslpath -w`, copies UNC (Linux filesystem) paths into the Windows TEMP directory, and launches Windows Edge directly via `msedge.exe` (falling back to `cmd.exe /c start microsoft-edge:<file-url>` when Edge cannot be located).
 - Do not modify `CHANGELOG.md` directly; it is managed via commitizen and manual edits interfere with the workflow.
 

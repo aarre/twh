@@ -6,6 +6,7 @@ Hierarchical Taskwarrior views and Graphviz dependency graphs.
 twh list
 twh list reverse
 twh simple
+twh review
 twh graph
 twh graph reverse
 ```
@@ -35,6 +36,13 @@ for speed. On WSL it disables Taskwarrior's pager, confirmations, and hooks for
 this command to avoid hangs; set `TWH_SIMPLE_PAGER=1` to keep paging. When
 paging is disabled, any `limit:page` filter is removed from the simple report
 and `twh simple` runs with stdin closed to prevent blocking.
+
+`twh review` scans pending tasks for missing metadata (imp/urg/opt/mode),
+prints a short list (ready tasks first), and then recommends the next move by
+scoring ready tasks. Use `--wizard` to fill missing fields interactively and
+`--mode editorial` (plus `--strict-mode` if desired) to bias recommendations
+to your current mode. The review flow expects the `imp`, `urg`, `opt`, `mode`,
+and `dominates` fields to exist as Taskwarrior UDAs if you want to edit them.
 
 `twh graph` renders a Graphviz-based dependency graph to `/tmp/tasks-graph.svg`
 and opens it by default (requires Graphviz `dot`). On WSL, the SVG opens in

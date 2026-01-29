@@ -1828,10 +1828,65 @@ def build_app():
         except ValueError as exc:
             raise typer.BadParameter(str(exc)) from exc
 
+    @app.command("review")
+    def review_cmd(
+        mode: Optional[str] = typer.Option(
+            None,
+            "--mode",
+            help="Current mode context (analysis/editorial/etc).",
+        ),
+        limit: int = typer.Option(
+            20,
+            "--limit",
+            help="Max tasks to list when showing missing metadata.",
+        ),
+        top: int = typer.Option(
+            5,
+            "--top",
+            help="Show top N candidate tasks.",
+        ),
+        strict_mode: bool = typer.Option(
+            False,
+            "--strict-mode",
+            help="Only keep tasks with matching modes.",
+        ),
+        include_dominated: bool = typer.Option(
+            False,
+            "--include-dominated",
+            help="Include tasks dominated by other tasks.",
+        ),
+        wizard: bool = typer.Option(
+            False,
+            "--wizard",
+            help="Interactively fill missing fields for ready tasks.",
+        ),
+        wizard_once: bool = typer.Option(
+            False,
+            "--wizard-once",
+            help="Only fill missing fields for the first ready task.",
+        ),
+    ):
+        from . import review as review_module
+
+        try:
+            exit_code = review_module.run_review(
+                mode=mode,
+                limit=limit,
+                top=top,
+                strict_mode=strict_mode,
+                include_dominated=include_dominated,
+                wizard=wizard,
+                wizard_once=wizard_once,
+            )
+        except FileNotFoundError:
+            print("Error: `task` command not found.", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
     return app
 
 
-TWH_COMMANDS = {"list", "reverse", "tree", "graph", "simple"}
+TWH_COMMANDS = {"list", "reverse", "tree", "graph", "simple", "review"}
 TWH_HELP_ARGS = {"-h", "--help", "--install-completion", "--show-completion"}
 
 
