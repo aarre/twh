@@ -1,3 +1,14 @@
+## 0.11.0 (2026-01-30)
+
+### Features
+
+- **review**: make review schedule- and wait-aware
+- **add**: make `twh add` run an interactive session to collect all metadata
+
+### Fixes
+
+- **blocks**: attempt to fix bug with `twh modify blocks:nn`
+
 ## 0.10.0 (2026-01-29)
 
 ### Features
