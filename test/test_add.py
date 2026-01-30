@@ -61,7 +61,7 @@ def test_prompt_add_input_orders_prompts():
     assert add_input.metadata == {
         "imp": "30",
         "urg": "10",
-        "opt": "8",
+        "opt_human": "8",
         "diff": "2.5",
         "mode": "analysis",
     }
@@ -77,7 +77,12 @@ def test_prompt_add_input_orders_prompts():
                 tags=["alpha", "beta"],
                 due="2024-02-01",
                 blocks=[],
-                metadata={"mode": "analysis", "imp": "10", "urg": "5"},
+                metadata={
+                    "mode": "analysis",
+                    "imp": "10",
+                    "urg": "5",
+                    "opt_human": "7",
+                },
             ),
             [
                 "add",
@@ -88,6 +93,7 @@ def test_prompt_add_input_orders_prompts():
                 "due:2024-02-01",
                 "imp:10",
                 "urg:5",
+                "opt_human:7",
                 "mode:analysis",
             ],
         ),
@@ -201,7 +207,7 @@ def test_run_interactive_add_runs_add_blocks_and_dominance(monkeypatch):
                 "Plan work",
                 "imp:7",
                 "urg:3",
-                "opt:5",
+                "opt_human:5",
                 "diff:1.5",
                 "mode:analysis",
             ],

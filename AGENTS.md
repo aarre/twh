@@ -33,7 +33,7 @@ Already implemented, among other requirements:
 * `twh` supports a synthetic `blocks` field for `add`/`modify`, translating it into Taskwarrior `depends` updates without new UDAs.
 * All user-facing output and documentation use "moves" terminology instead of "tasks".
 * `twh dominance` collects dominance ordering with pairwise prompts (transitive, dependency-implied dominance) and writes `dominates`/`dominated_by` UDAs; `twh review --wizard` includes this dominance stage for moves in scope.
-* `twh review` tracks `diff` (difficulty hours) alongside `imp`/`urg`/`opt`/`mode`, treats missing dominance/diff as incomplete metadata, and ranks moves by dominance tier before scoring ties.
+* `twh review` tracks `diff` (difficulty hours) alongside `imp`/`urg`/`opt_human` (legacy `opt` accepted)/`mode`, treats missing dominance/diff as incomplete metadata, and ranks moves by dominance tier before scoring ties.
 * `twh review --wizard` prompts for missing metadata on all moves in scope (including blocked) so a single run can collect everything.
 * `twh review` formats annotation timestamps into a local, human-readable date-time string (US Eastern).
 * Suppress Taskwarrior noise like `Modified 0 tasks.` in `twh` outputs.
@@ -42,8 +42,9 @@ Already implemented, among other requirements:
 * Dominance should never prompt for move pairs already related by dependencies (including when dependencies are stored as IDs), and prompts should show approximate progress (comparisons complete/remaining).
 * `twh review` outputs a top-move list that includes move descriptions, annotations, and a short list of first-order dominance relations.
 * Before any operation that could modify move descriptions (including writing UDAs that might be misconfigured), halt and ask for guidance. If a required UDA is missing and its absence could overwrite descriptions, stop and ask for guidance before proceeding.
-* `twh add` is an interactive flow that prompts for description, project, tags, due date, blocks, and metadata (imp/urg/opt/diff/mode), then runs dominance sorting.
+* `twh add` is an interactive flow that prompts for description, project, tags, due date, blocks, and metadata (imp/urg/opt_human/diff/mode), then runs dominance sorting.
 * `twh review` ordering considers `Scheduled` and `Wait until`, prioritizing imminent/past times and otherwise preferring unscheduled moves ahead of future scheduled ones (using the later timestamp when both are set).
+* `twh option` computes opt_auto estimates calibrated from manual `opt_human` ratings (falling back to `opt`) and can write them with `--apply`, using dependencies, due/priority, tags like `probe`, and optional `door`/`kind`/`estimate_minutes` UDAs.
 
 ## Project notes
 
@@ -57,9 +58,11 @@ Already implemented, among other requirements:
 - `twh graph` renders a Graphviz SVG and opens it by default when `dot` is available, falling back to ASCII with `--ascii` or when rendering fails; nodes mirror the legacy graph metadata and coloring, and `reverse` flips edge direction.
 - When running under Cygwin with a Windows Graphviz binary, graph converts output paths using `cygpath -w` so `dot` can write into the temp directory.
 - `twh` implements `blocks` by exporting blocking and blocked moves, merging existing dependencies, and writing `depends:<uuid-list>` to avoid Taskwarrior rejecting `depends:+<uuid>`.
+- Dependency values are normalized by stripping leading `+`/`-` prefixes before writing `depends` updates.
 - `twh` delegates to Taskwarrior via `exec` when no internal handling is needed, and builds the Typer app lazily to reduce startup overhead.
 - `twh simple` creates a Taskwarrior `report.simple` (if missing) by copying the default report and replacing the description column with `description.count`, then runs `task simple` directly; on WSL it disables pager/confirmations/hooks unless `TWH_SIMPLE_PAGER=1` is set, strips `limit:page` from the simple report, and runs with stdin closed to avoid interactive pauses.
-- `twh review` inspects pending moves for missing `imp`, `urg`, `opt`, `diff`, `mode`, and dominance ordering, optionally prompts to fill them (including dominance) with `--wizard`, and recommends the next move using dominance tiers before the scoring model; mode filters (`--mode`, `--strict-mode`) and dominance UDAs influence candidate selection, extra Taskwarrior filter tokens after `twh review` scope the review set, and filtered runs apply the wizard even for blocked moves in scope.
+- `twh review` inspects pending moves for missing `imp`, `urg`, `opt_human` (legacy `opt` accepted), `diff`, `mode`, and dominance ordering, optionally prompts to fill them (including dominance) with `--wizard`, auto-runs `twh option --apply` after wizard updates, and recommends the next move using dominance tiers before the scoring model; mode filters (`--mode`, `--strict-mode`) and dominance UDAs influence candidate selection, extra Taskwarrior filter tokens after `twh review` scope the review set, and filtered runs apply the wizard even for blocked moves in scope.
+- `twh option` calibrates option value weights from manual `opt_human` ratings (falling back to `opt`), predicts `opt_auto` values using dependency structure and metadata, and optionally writes them to Taskwarrior with `--apply`.
 - On WSL, `open_in_browser` converts paths with `wslpath -w`, copies UNC (Linux filesystem) paths into the Windows TEMP directory, and launches Windows Edge directly via `msedge.exe` (falling back to `cmd.exe /c start microsoft-edge:<file-url>` when Edge cannot be located).
 - Do not modify `CHANGELOG.md` directly; it is managed via commitizen and manual edits interfere with the workflow.
 

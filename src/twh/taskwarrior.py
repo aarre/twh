@@ -58,6 +58,29 @@ def get_tasks_from_taskwarrior(status: Optional[str] = "pending") -> List[Dict]:
         raise
 
 
+def normalize_dependency_value(value: object) -> Optional[str]:
+    """
+    Normalize dependency identifiers from Taskwarrior payloads.
+
+    Parameters
+    ----------
+    value : object
+        Raw dependency value.
+
+    Returns
+    -------
+    Optional[str]
+        Cleaned dependency identifier, or None when empty.
+    """
+    if value is None:
+        return None
+    dep = str(value).strip()
+    if not dep:
+        return None
+    dep = dep.lstrip("+-").strip()
+    return dep or None
+
+
 def parse_dependencies(dep_field: Optional[str]) -> List[str]:
     """
     Parse the dependencies field from a task.
@@ -65,8 +88,15 @@ def parse_dependencies(dep_field: Optional[str]) -> List[str]:
     if not dep_field:
         return []
     if isinstance(dep_field, list):
-        return [str(value).strip() for value in dep_field if str(value).strip()]
-    return [item.strip() for item in str(dep_field).split(",") if item.strip()]
+        values = dep_field
+    else:
+        values = str(dep_field).split(",")
+    dependencies: List[str] = []
+    for value in values:
+        dep = normalize_dependency_value(value)
+        if dep:
+            dependencies.append(dep)
+    return dependencies
 
 
 def filter_modified_zero_lines(stdout: Optional[str]) -> List[str]:

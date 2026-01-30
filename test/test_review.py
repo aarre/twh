@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 import twh.review as review
+import twh.option_value as option_value
 
 
 @pytest.mark.parametrize(
@@ -156,6 +157,48 @@ def test_review_task_from_json_parses_schedule_fields():
 
 
 @pytest.mark.unit
+def test_review_task_from_json_parses_opt_auto():
+    """
+    Ensure opt_auto values are parsed for review tasks.
+
+    Returns
+    -------
+    None
+        This test asserts opt_auto parsing.
+    """
+    payload = {
+        "uuid": "u1",
+        "description": "Option move",
+        "opt_auto": "6.5",
+    }
+
+    task = review.ReviewTask.from_json(payload)
+
+    assert task.opt_auto == 6.5
+
+
+@pytest.mark.unit
+def test_review_task_from_json_parses_opt_human():
+    """
+    Ensure opt_human values are parsed for review tasks.
+
+    Returns
+    -------
+    None
+        This test asserts opt_human parsing.
+    """
+    payload = {
+        "uuid": "u1",
+        "description": "Option move",
+        "opt_human": "7.5",
+    }
+
+    task = review.ReviewTask.from_json(payload)
+
+    assert task.opt_human == 7.5
+
+
+@pytest.mark.unit
 def test_parse_annotations_formats_entry_time(monkeypatch):
     """
     Ensure annotation entries are formatted as local-readable date-times.
@@ -291,8 +334,37 @@ def test_collect_missing_metadata_orders_ready_first():
 
     assert [item.task.uuid for item in missing] == ["a", "c", "b"]
     assert missing[0].missing == ("imp",)
-    assert missing[1].missing == ("opt", "diff", "mode")
+    assert missing[1].missing == ("opt_human", "diff", "mode")
     assert missing[2].missing == ("urg",)
+
+
+@pytest.mark.unit
+def test_missing_fields_accepts_opt_human():
+    """
+    Ensure opt_human satisfies the option value requirement.
+
+    Returns
+    -------
+    None
+        This test asserts opt_human completeness.
+    """
+    task = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Move",
+        project=None,
+        depends=[],
+        imp=2,
+        urg=3,
+        opt=None,
+        opt_human=6,
+        diff=2.0,
+        mode="analysis",
+        dominates=[],
+        raw={},
+    )
+
+    assert "opt_human" not in review.missing_fields(task)
 
 
 @pytest.mark.unit
@@ -618,6 +690,67 @@ def test_rank_candidates_orders_by_score():
 
 
 @pytest.mark.unit
+def test_score_task_uses_opt_auto_when_opt_missing():
+    """
+    Ensure opt_auto is used for scoring when opt is missing.
+
+    Returns
+    -------
+    None
+        This test asserts opt_auto usage in scoring.
+    """
+    task = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Move",
+        project=None,
+        depends=[],
+        imp=1,
+        urg=2,
+        opt=None,
+        diff=1.0,
+        mode=None,
+        opt_auto=8.0,
+        dominates=[],
+        raw={},
+    )
+
+    _score, components = review.score_task(task, current_mode=None)
+
+    assert components["opt_score"] == pytest.approx(0.8)
+
+
+@pytest.mark.unit
+def test_effective_option_value_prefers_opt_human():
+    """
+    Ensure opt_human takes precedence over opt_auto and legacy opt.
+
+    Returns
+    -------
+    None
+        This test asserts manual opt_human precedence.
+    """
+    task = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Move",
+        project=None,
+        depends=[],
+        imp=1,
+        urg=1,
+        opt=2,
+        opt_human=7,
+        opt_auto=9.0,
+        diff=1.0,
+        mode=None,
+        dominates=[],
+        raw={},
+    )
+
+    assert review.effective_option_value(task) == 7.0
+
+
+@pytest.mark.unit
 def test_rank_candidates_respects_dominance():
     """
     Ensure dominance ordering overrides score ordering.
@@ -911,6 +1044,41 @@ def test_interactive_fill_missing_prompts_only_for_missing():
 
 
 @pytest.mark.unit
+def test_interactive_fill_missing_writes_opt_human():
+    """
+    Ensure the wizard writes opt_human when option value is missing.
+
+    Returns
+    -------
+    None
+        This test asserts opt_human updates.
+    """
+    task = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Task 1",
+        project=None,
+        depends=[],
+        imp=1,
+        urg=3,
+        opt=None,
+        opt_human=None,
+        diff=2.0,
+        mode="analysis",
+        dominates=[],
+        raw={},
+    )
+    responses = iter(["9"])
+
+    def fake_input(_prompt):
+        return next(responses)
+
+    updates = review.interactive_fill_missing(task, input_func=fake_input)
+
+    assert updates == {"opt_human": "9"}
+
+
+@pytest.mark.unit
 def test_apply_updates_uses_modify(monkeypatch):
     """
     Ensure updates are applied via task modify.
@@ -1133,6 +1301,7 @@ def test_run_review_wizard_includes_filtered_non_ready(monkeypatch):
     monkeypatch.setattr(review, "load_pending_tasks", fake_load)
     monkeypatch.setattr(review, "interactive_fill_missing", fake_fill)
     monkeypatch.setattr(review, "build_review_report", fake_report)
+    monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
 
     exit_code = review.run_review(
         mode=None,
@@ -1209,6 +1378,7 @@ def test_run_review_wizard_includes_non_ready_without_filters(monkeypatch):
 
     monkeypatch.setattr(review, "interactive_fill_missing", fake_fill)
     monkeypatch.setattr(review, "build_review_report", fake_report)
+    monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
 
     exit_code = review.run_review(
         mode=None,
@@ -1224,6 +1394,87 @@ def test_run_review_wizard_includes_non_ready_without_filters(monkeypatch):
 
     assert exit_code == 0
     assert calls == ["u2", "u1"]
+
+
+@pytest.mark.unit
+def test_run_review_wizard_auto_applies_option_values(monkeypatch):
+    """
+    Ensure review wizard triggers option value auto-apply.
+
+    Returns
+    -------
+    None
+        This test asserts option value integration.
+    """
+    tasks = [
+        review.ReviewTask(
+            uuid="u1",
+            id=1,
+            description="Move 1",
+            project="work",
+            depends=[],
+            imp=2,
+            urg=3,
+            opt=None,
+            diff=1.0,
+            mode="analysis",
+            dominates=[],
+            raw={},
+        ),
+    ]
+
+    monkeypatch.setattr(review, "load_pending_tasks", lambda filters=None: tasks)
+    monkeypatch.setattr(
+        review,
+        "_build_dominance_context",
+        lambda pending: ({}, [], set()),
+    )
+    monkeypatch.setattr(
+        review,
+        "build_review_report",
+        lambda *_args, **_kwargs: review.ReviewReport(missing=[], candidates=[]),
+    )
+
+    updates_applied = []
+
+    def fake_fill(_task, input_func=input):
+        return {"opt_human": "5"}
+
+    def fake_apply_updates(uuid, updates, get_setting=None):
+        updates_applied.append((uuid, updates))
+
+    option_calls = []
+
+    def fake_run_option_value(**kwargs):
+        option_calls.append(kwargs)
+        return 0
+
+    monkeypatch.setattr(review, "interactive_fill_missing", fake_fill)
+    monkeypatch.setattr(review, "apply_updates", fake_apply_updates)
+    monkeypatch.setattr(option_value, "run_option_value", fake_run_option_value)
+
+    exit_code = review.run_review(
+        mode=None,
+        limit=20,
+        top=5,
+        strict_mode=False,
+        include_dominated=False,
+        wizard=True,
+        wizard_once=False,
+        filters=["project:work"],
+        input_func=lambda _prompt: "",
+    )
+
+    assert exit_code == 0
+    assert updates_applied == [("u1", {"opt_human": "5"})]
+    assert option_calls == [
+        {
+            "filters": ["project:work"],
+            "apply": True,
+            "include_rated": True,
+            "limit": 0,
+        }
+    ]
 
 
 @pytest.mark.unit
@@ -1283,6 +1534,7 @@ def test_run_review_wizard_collects_dominance(monkeypatch):
         lambda *_args, **_kwargs: review.ReviewReport(missing=[], candidates=[]),
     )
     monkeypatch.setattr(review, "interactive_fill_missing", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
 
     calls = {}
 

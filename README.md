@@ -8,6 +8,7 @@ twh list reverse
 twh simple
 twh dominance
 twh review
+twh option
 twh graph
 twh graph reverse
 ```
@@ -18,8 +19,8 @@ Commands that `twh` doesn't recognize are forwarded to Taskwarrior, so `twh`
 behaves like `task` for most subcommands and delegated commands replace the
 `twh` process with `task` to keep overhead low.
 `twh add` is interactive: it prompts for the move description, project, tags,
-due date, blocks, and review metadata (imp/urg/opt/diff/mode), then runs the
-dominance sorting step. Use `task add` for non-interactive adds.
+due date, blocks, and review metadata (imp/urg/opt_human/diff/mode), then runs
+the dominance sorting step. Use `task add` for non-interactive adds.
 When a Taskwarrior context is active and its definition includes `project:` or
 tag filters, `twh add` automatically applies those values to new moves unless
 you supply them yourself, and prints an informational message. For example,
@@ -48,7 +49,7 @@ scope, taking dependencies into account, and records the resulting hierarchy
 in the `dominates` and `dominated_by` UDAs. Use it to establish a dominance
 ordering for your moves with minimal comparisons.
 
-`twh review` scans pending moves for missing metadata (imp/urg/opt/diff/mode)
+`twh review` scans pending moves for missing metadata (imp/urg/opt_human/diff/mode)
 and missing dominance ordering, prints a short list (ready moves first), and
 then recommends the next move by scoring ready moves. The top-move list includes
 each move's description, annotations, and a short list of first-order dominance
@@ -58,9 +59,12 @@ dominance ordering for moves in scope. Use `--mode editorial` (plus
 can pass Taskwarrior filter tokens after the command (for example
 `twh review project:work.competitiveness -WAITING`) to limit the review scope.
 When the wizard is enabled it prompts for missing metadata on all moves in
-scope, even if they are blocked. The review flow expects the `imp`, `urg`, `opt`,
+scope, even if they are blocked. The review flow expects the `imp`, `urg`, `opt_human`,
 `diff`, `mode`, `dominates`, and `dominated_by` fields to exist as Taskwarrior
-UDAs if you want to edit them.
+UDAs if you want to edit them. Manual option values are stored in `opt_human`;
+legacy `opt` values are still accepted for scoring and calibration. When
+`--wizard` is enabled, `twh review` automatically runs `twh option --apply`
+after updates so opt_auto values stay in sync.
 Review ordering also considers `Scheduled` and `Wait until`: moves without
 those fields come before moves scheduled further in the future, except when the
 timestamp is within 24 hours (or has already passed). Earlier scheduled or wait
@@ -68,6 +72,16 @@ times are ranked ahead of later ones; when both are set, the later timestamp
 governs the ordering.
 If a required UDA is missing, `twh review` and `twh dominance` will stop before
 writing updates to avoid modifying move descriptions.
+
+`twh option` estimates option value from the dependency graph and metadata,
+calibrates weights using your manual `opt_human` ratings (falling back to legacy
+`opt` values), and prints predicted `opt_auto` values. Use `--apply` to write
+`opt_auto` to moves in scope and `--include-rated` to see predictions alongside
+manual ratings. Option value uses
+dependency depth, project diversity, due-date urgency, priority, and tags such
+as `probe`/`explore`/`call`/`prototype`/`test` to model information gain and
+flexibility. If you set `door=oneway` or an `estimate_minutes` UDA, those are
+also incorporated as reversibility and effort penalties.
 
 Taskwarrior UDA setup for review and dominance:
 
@@ -81,6 +95,22 @@ uda.dominated_by.label=<Dom
 # Difficulty (estimated hours of effort)
 uda.diff.type=numeric
 uda.diff.label=Diff(h)
+
+# Manual option value ratings
+uda.opt_human.type=numeric
+uda.opt_human.label=OptHuman
+
+# Auto option value estimates
+uda.opt_auto.type=numeric
+uda.opt_auto.label=OptAuto
+
+# Optional option value fields
+uda.door.type=string
+uda.door.label=Door
+uda.kind.type=string
+uda.kind.label=Kind
+uda.estimate_minutes.type=numeric
+uda.estimate_minutes.label=Est(min)
 ```
 
 `twh graph` renders a Graphviz-based dependency graph to `/tmp/tasks-graph.svg`

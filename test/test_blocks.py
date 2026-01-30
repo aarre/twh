@@ -125,6 +125,48 @@ def test_apply_blocks_modify(monkeypatch):
     ]
 
 
+@pytest.mark.parametrize("raw_dep", ["+uuid-9", "-uuid-9"])
+@pytest.mark.unit
+def test_apply_blocks_modify_strips_dependency_prefix(raw_dep, monkeypatch):
+    """
+    Ensure dependency prefixes are stripped before updating depends.
+
+    Parameters
+    ----------
+    raw_dep : str
+        Raw dependency value returned by Taskwarrior export.
+    monkeypatch : pytest.MonkeyPatch
+        Fixture for patching task execution.
+
+    Returns
+    -------
+    None
+        This test asserts dependency normalization.
+    """
+    calls = []
+
+    def fake_run_task(args, capture_output=False, **_kwargs):
+        calls.append((args, capture_output))
+        if args[-1] == "export":
+            if args[0] == "31":
+                payload = '[{"uuid":"uuid-1","id":31}]'
+            else:
+                payload = f'[{{"uuid":"uuid-32","id":32,"depends":"{raw_dep}"}}]'
+            return subprocess.CompletedProcess(args, 0, stdout=payload, stderr="")
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(twh, "run_task_command", fake_run_task)
+
+    exit_code = twh.apply_blocks_relationship(["31", "modify", "blocks", "32"])
+
+    assert exit_code == 0
+    assert calls == [
+        (["31", "export"], True),
+        (["32", "export"], True),
+        (["uuid-32", "modify", "depends:uuid-9,uuid-1"], True),
+    ]
+
+
 @pytest.mark.unit
 def test_apply_blocks_modify_with_other_changes(monkeypatch):
     """

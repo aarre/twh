@@ -20,6 +20,7 @@ from .taskwarrior import (
     filter_modified_zero_lines,
     get_tasks_from_taskwarrior,
     missing_udas,
+    normalize_dependency_value,
     parse_dependencies,
     read_tasks_from_json,
 )
@@ -324,7 +325,7 @@ class AddMoveInput:
     blocks : List[str]
         Move IDs blocked by this move.
     metadata : Dict[str, str]
-        Metadata fields keyed by UDA name.
+        Metadata fields keyed by UDA name (imp/urg/opt_human/diff/mode).
     """
 
     description: str
@@ -550,7 +551,7 @@ def build_add_args(add_input: AddMoveInput) -> List[str]:
         args.append(f"+{tag}")
     if add_input.due:
         args.append(f"due:{add_input.due}")
-    for field in ("imp", "urg", "opt", "diff", "mode"):
+    for field in ("imp", "urg", "opt_human", "diff", "mode"):
         value = add_input.metadata.get(field)
         if value:
             args.append(f"{field}:{value}")
@@ -1286,11 +1287,13 @@ def merge_dependencies(existing: Sequence[str], additions: Iterable[str]) -> Lis
     ['a', 'b']
     >>> merge_dependencies([], ["x", "y"])
     ['x', 'y']
+    >>> merge_dependencies(["+a"], ["-b"])
+    ['a', 'b']
     """
     merged: List[str] = []
     seen = set()
     for value in list(existing) + list(additions):
-        dep = str(value).strip()
+        dep = normalize_dependency_value(value)
         if not dep or dep in seen:
             continue
         merged.append(dep)
@@ -2413,10 +2416,52 @@ def build_app():
             raise typer.Exit(code=1)
         raise typer.Exit(code=exit_code)
 
+    @app.command(
+        "option",
+        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    )
+    def option_cmd(
+        ctx: typer.Context,
+        apply: bool = typer.Option(
+            False,
+            "--apply",
+            help="Write opt_auto values to moves in scope.",
+        ),
+        include_rated: bool = typer.Option(
+            False,
+            "--include-rated",
+            help="Include moves with manual opt_human ratings in the output.",
+        ),
+        limit: int = typer.Option(
+            25,
+            "--limit",
+            help="Maximum number of moves to display.",
+        ),
+        ridge: float = typer.Option(
+            1.0,
+            "--ridge",
+            help="Ridge regularization strength for calibration.",
+        ),
+    ):
+        from . import option_value as option_module
+
+        try:
+            exit_code = option_module.run_option_value(
+                filters=list(ctx.args),
+                apply=apply,
+                include_rated=include_rated,
+                limit=limit,
+                ridge=ridge,
+            )
+        except FileNotFoundError:
+            print("Error: `task` command not found.", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
     return app
 
 
-TWH_COMMANDS = {"list", "reverse", "tree", "graph", "simple", "review", "dominance"}
+TWH_COMMANDS = {"list", "reverse", "tree", "graph", "simple", "review", "option", "dominance"}
 TWH_HELP_ARGS = {"-h", "--help", "--install-completion", "--show-completion"}
 
 

@@ -49,6 +49,10 @@ class ReviewTask:
         Urgency horizon in days.
     opt : Optional[int]
         Option value (0-10).
+    opt_human : Optional[float]
+        Manual option value rating.
+    opt_auto : Optional[float]
+        Auto-calculated option value estimate.
     diff : Optional[float]
         Estimated difficulty in hours.
     mode : Optional[str]
@@ -75,6 +79,8 @@ class ReviewTask:
     imp: Optional[int]
     urg: Optional[int]
     opt: Optional[int]
+    opt_human: Optional[float] = None
+    opt_auto: Optional[float] = None
     diff: Optional[float] = None
     mode: Optional[str] = None
     scheduled: Optional[datetime] = None
@@ -139,6 +145,8 @@ class ReviewTask:
             imp=parse_int("imp"),
             urg=parse_int("urg"),
             opt=parse_int("opt"),
+            opt_human=parse_float("opt_human"),
+            opt_auto=parse_float("opt_auto"),
             diff=parse_float("diff"),
             mode=normalize_mode(payload.get("mode")),
             scheduled=parse_task_timestamp(payload.get("scheduled")),
@@ -545,15 +553,15 @@ def missing_fields(task: ReviewTask) -> Tuple[str, ...]:
     --------
     >>> move = ReviewTask("u1", 1, "x", None, [], None, 2, None)
     >>> missing_fields(move)
-    ('imp', 'opt', 'diff', 'mode')
+    ('imp', 'opt_human', 'diff', 'mode')
     """
     missing: List[str] = []
     if task.imp is None:
         missing.append("imp")
     if task.urg is None:
         missing.append("urg")
-    if task.opt is None:
-        missing.append("opt")
+    if manual_option_value(task) is None:
+        missing.append("opt_human")
     if task.diff is None:
         missing.append("diff")
     if not task.mode:
@@ -679,6 +687,55 @@ def mode_multiplier(current: Optional[str], required: Optional[str]) -> float:
     return 0.85
 
 
+def manual_option_value(task: ReviewTask) -> Optional[float]:
+    """
+    Return the manual option value when provided.
+
+    Parameters
+    ----------
+    task : ReviewTask
+        Move to inspect.
+
+    Returns
+    -------
+    Optional[float]
+        Manual option value from opt_human or legacy opt.
+    """
+    if task.opt_human is not None:
+        return float(task.opt_human)
+    if task.opt is not None:
+        return float(task.opt)
+    return None
+
+
+def effective_option_value(task: ReviewTask) -> float:
+    """
+    Return the option value to use for scoring.
+
+    Parameters
+    ----------
+    task : ReviewTask
+        Move to score.
+
+    Returns
+    -------
+    float
+        Manual option value when present, otherwise opt_auto, else 0.0.
+
+    Examples
+    --------
+    >>> task = ReviewTask("u1", 1, "Move", None, [], 1, 1, None, opt_auto=7.5)
+    >>> effective_option_value(task)
+    7.5
+    """
+    manual = manual_option_value(task)
+    if manual is not None:
+        return manual
+    if task.opt_auto is not None:
+        return float(task.opt_auto)
+    return 0.0
+
+
 def score_task(
     task: ReviewTask,
     current_mode: Optional[str],
@@ -701,21 +758,21 @@ def score_task(
     missing_penalty = 1.0
     if task.imp is None or task.urg is None:
         missing_penalty *= 0.92
-    if task.opt is None:
+    if manual_option_value(task) is None:
         missing_penalty *= 0.96
     if task.diff is None:
         missing_penalty *= 0.95
 
     imp_days = max(0, task.imp or 0)
     urg_days = max(0, task.urg or 0)
-    opt = max(0, min(10, task.opt if task.opt is not None else 0))
+    opt_value = max(0.0, min(10.0, effective_option_value(task)))
     diff_hours = max(0.0, float(task.diff) if task.diff is not None else 0.0)
 
     imp_score = math.log1p(imp_days)
     urg_hours = max(urg_days * 24.0, 1.0)
     time_pressure = diff_hours / urg_hours
     urg_score = (1.0 / (urg_days + 1.0)) * (1.0 + time_pressure)
-    opt_score = opt / 10.0
+    opt_score = opt_value / 10.0
     diff_ease = 1.0 / (diff_hours + 1.0)
 
     mode_mult = mode_multiplier(current_mode, task.mode)
@@ -758,7 +815,8 @@ def format_task_rationale(task: ReviewTask, components: Dict[str, float]) -> str
     """
     imp = task.imp if task.imp is not None else "?"
     urg = task.urg if task.urg is not None else "?"
-    opt = task.opt if task.opt is not None else "?"
+    manual = manual_option_value(task)
+    opt = "?" if manual is None else f"{manual:g}"
     diff = task.diff if task.diff is not None else "?"
     mode = task.mode or "-"
     proj = task.project or "-"
@@ -1061,12 +1119,12 @@ def interactive_fill_missing(
         ).strip()
         if value:
             updates["urg"] = value
-    if task.opt is None:
+    if manual_option_value(task) is None:
         value = input_func(
             "  Option value - to what extent does doing this move preserve, unlock, or multiply future moves? (0-10): "
         ).strip()
         if value:
-            updates["opt"] = value
+            updates["opt_human"] = value
     if task.diff is None:
         value = input_func("  Difficulty, i.e., estimated effort (hours): ").strip()
         if value:
@@ -1237,6 +1295,7 @@ def run_review(
             shown += 1
 
     updated = False
+    option_applied = False
     if wizard and missing:
         for item in missing:
             if all(field == "dominance" for field in item.missing):
@@ -1278,7 +1337,20 @@ def run_review(
         updated = True
         print(f"Dominance updated for {len(pending)} moves.")
 
-    if updated:
+    if wizard:
+        from . import option_value as option_module
+
+        option_exit = option_module.run_option_value(
+            filters=filters,
+            apply=True,
+            include_rated=True,
+            limit=0,
+        )
+        if option_exit != 0:
+            return option_exit
+        option_applied = True
+
+    if updated or option_applied:
         try:
             pending = load_pending_tasks(filters=filters)
         except RuntimeError as exc:
