@@ -1,3 +1,10 @@
+## 0.10.0 (2026-01-29)
+
+### Features
+
+- **domination**: add dominance relations to priority calculations
+- **review**: add `twh review` command
+
 ## 0.9.4 (2026-01-29)
 
 ### Performance
