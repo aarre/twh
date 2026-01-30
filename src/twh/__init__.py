@@ -558,7 +558,7 @@ def build_add_args(add_input: AddMoveInput) -> List[str]:
 
 
 def apply_blocks_to_targets(
-    created_id: str,
+    created_uuid: str,
     blocks: Iterable[str],
     runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
 ) -> int:
@@ -567,8 +567,8 @@ def apply_blocks_to_targets(
 
     Parameters
     ----------
-    created_id : str
-        Newly created move ID.
+    created_uuid : str
+        Newly created move UUID.
     blocks : Iterable[str]
         IDs of blocked moves.
     runner : Callable[..., subprocess.CompletedProcess], optional
@@ -582,19 +582,7 @@ def apply_blocks_to_targets(
     if runner is None:
         runner = run_task_command
 
-    exit_code = 0
-    for target in blocks:
-        result = runner(
-            [target, "modify", f"depends:+{created_id}"],
-            capture_output=True,
-        )
-        for line in filter_modified_zero_lines(result.stdout):
-            print(line)
-        if result.stderr:
-            print(result.stderr, end="", file=sys.stderr)
-        if result.returncode != 0:
-            exit_code = result.returncode
-    return exit_code
+    return apply_dependency_updates(blocks, [created_uuid], runner=runner)
 
 
 def run_interactive_add(
@@ -647,13 +635,16 @@ def run_interactive_add(
         return add_result.returncode
 
     created_id = parse_created_task_id(add_result.stdout or "")
-
     exit_code = 0
     if add_input.blocks:
         if not created_id:
             print("twh: unable to parse created move id for blocks.", file=sys.stderr)
             return 1
-        exit_code = apply_blocks_to_targets(created_id, add_input.blocks)
+        created_uuid = resolve_task_uuid(created_id)
+        if not created_uuid:
+            print("twh: unable to resolve created move uuid for blocks.", file=sys.stderr)
+            return 1
+        exit_code = apply_blocks_to_targets(created_uuid, add_input.blocks)
 
     missing_dominance = missing_udas(["dominates", "dominated_by"])
     if missing_dominance:
@@ -1273,6 +1264,165 @@ def get_taskwarrior_setting_simple(key: str) -> Optional[str]:
     return value if value else None
 
 
+def merge_dependencies(existing: Sequence[str], additions: Iterable[str]) -> List[str]:
+    """
+    Merge dependency identifiers, preserving order and removing duplicates.
+
+    Parameters
+    ----------
+    existing : Sequence[str]
+        Existing dependency identifiers.
+    additions : Iterable[str]
+        Dependency identifiers to add.
+
+    Returns
+    -------
+    List[str]
+        Combined dependency identifiers.
+
+    Examples
+    --------
+    >>> merge_dependencies(["a"], ["b", "a"])
+    ['a', 'b']
+    >>> merge_dependencies([], ["x", "y"])
+    ['x', 'y']
+    """
+    merged: List[str] = []
+    seen = set()
+    for value in list(existing) + list(additions):
+        dep = str(value).strip()
+        if not dep or dep in seen:
+            continue
+        merged.append(dep)
+        seen.add(dep)
+    return merged
+
+
+def export_tasks(
+    filter_args: Sequence[str],
+    runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
+) -> Optional[List[Dict]]:
+    """
+    Export Taskwarrior moves for a filter.
+
+    Parameters
+    ----------
+    filter_args : Sequence[str]
+        Taskwarrior filter arguments.
+    runner : Callable[..., subprocess.CompletedProcess], optional
+        Runner for task commands (default: run_task_command).
+
+    Returns
+    -------
+    Optional[List[Dict]]
+        Parsed move payloads, or None on failure.
+    """
+    if runner is None:
+        runner = run_task_command
+    result = runner([*filter_args, "export"], capture_output=True)
+    if result.returncode != 0:
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        return None
+    return read_tasks_from_json(result.stdout or "")
+
+
+def resolve_task_uuid(
+    task_id: str,
+    runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
+) -> Optional[str]:
+    """
+    Resolve a move ID to a UUID using Taskwarrior export.
+
+    Parameters
+    ----------
+    task_id : str
+        Move ID to resolve.
+    runner : Callable[..., subprocess.CompletedProcess], optional
+        Runner for task commands (default: run_task_command).
+
+    Returns
+    -------
+    Optional[str]
+        Resolved UUID, or None if unavailable.
+    """
+    tasks = export_tasks([task_id], runner=runner)
+    if tasks is None:
+        return None
+    for task in tasks:
+        if isinstance(task, dict) and task.get("uuid"):
+            return str(task["uuid"])
+    return None
+
+
+def apply_dependency_updates(
+    targets: Iterable[str],
+    additions: Iterable[str],
+    runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
+) -> int:
+    """
+    Apply dependency updates to target moves.
+
+    Parameters
+    ----------
+    targets : Iterable[str]
+        Target move identifiers or filters.
+    additions : Iterable[str]
+        Dependency identifiers to add.
+    runner : Callable[..., subprocess.CompletedProcess], optional
+        Runner for task commands (default: run_task_command).
+
+    Returns
+    -------
+    int
+        Exit code from Taskwarrior updates.
+    """
+    if runner is None:
+        runner = run_task_command
+
+    additions_list = merge_dependencies([], additions)
+    if not additions_list:
+        return 0
+
+    exit_code = 0
+    for target in targets:
+        tasks = export_tasks([target], runner=runner)
+        if tasks is None:
+            exit_code = 1
+            continue
+        if not tasks:
+            print(
+                f"twh: no moves found for blocks target {target}.",
+                file=sys.stderr,
+            )
+            exit_code = 1
+            continue
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+            uuid = task.get("uuid")
+            if not uuid:
+                print("twh: unable to resolve move uuid for blocks.", file=sys.stderr)
+                exit_code = 1
+                continue
+            existing = parse_dependencies(task.get("depends"))
+            merged = merge_dependencies(existing, additions_list)
+            if merged == existing:
+                continue
+            depends_value = ",".join(merged)
+            result = runner(
+                [str(uuid), "modify", f"depends:{depends_value}"],
+                capture_output=True,
+            )
+            for line in filter_modified_zero_lines(result.stdout):
+                print(line)
+            if result.stderr:
+                print(result.stderr, end="", file=sys.stderr)
+            if result.returncode != 0:
+                exit_code = result.returncode
+    return exit_code
+
+
 def apply_blocks_relationship(
     argv: List[str],
     exec_task: Optional[Callable[[List[str]], int]] = None,
@@ -1315,13 +1465,12 @@ def apply_blocks_relationship(
         if not created_id:
             print("twh: unable to parse created move id for blocks.", file=sys.stderr)
             return 1
+        created_uuid = resolve_task_uuid(created_id)
+        if not created_uuid:
+            print("twh: unable to resolve created move uuid for blocks.", file=sys.stderr)
+            return 1
 
-        exit_code = add_result.returncode
-        for target in blocks:
-            result = run_task_command([target, "modify", f"depends:+{created_id}"])
-            if result.returncode != 0:
-                exit_code = result.returncode
-        return exit_code
+        return apply_dependency_updates(blocks, [created_uuid])
 
     if "modify" not in cleaned_args:
         print("twh: blocks is only supported with add or modify.", file=sys.stderr)
@@ -1331,20 +1480,17 @@ def apply_blocks_relationship(
     filter_args = cleaned_args[:modify_index]
     change_args = cleaned_args[modify_index + 1:]
 
-    export_result = run_task_command([*filter_args, "export"], capture_output=True)
-    if export_result.returncode != 0:
-        if export_result.stderr:
-            print(export_result.stderr, end="", file=sys.stderr)
-        return export_result.returncode
-
-    tasks = read_tasks_from_json(export_result.stdout or "")
+    tasks = export_tasks(filter_args)
+    if tasks is None:
+        return 1
     blocking_uuids = [
-        task["uuid"] for task in tasks
+        str(task["uuid"])
+        for task in tasks
         if isinstance(task, dict) and task.get("uuid")
     ]
-    blocking_uuids = list(dict.fromkeys(blocking_uuids))
+    blocking_uuids = merge_dependencies([], blocking_uuids)
     if not blocking_uuids:
-        print("twh: no tasks found to apply blocks.", file=sys.stderr)
+        print("twh: no moves found to apply blocks.", file=sys.stderr)
         return 1
 
     if change_args:
@@ -1352,13 +1498,7 @@ def apply_blocks_relationship(
         if modify_result.returncode != 0:
             return modify_result.returncode
 
-    exit_code = 0
-    for target in blocks:
-        for uuid in blocking_uuids:
-            result = run_task_command([target, "modify", f"depends:+{uuid}"])
-            if result.returncode != 0:
-                exit_code = result.returncode
-    return exit_code
+    return apply_dependency_updates(blocks, blocking_uuids)
 
 
 def get_graph_output_dir() -> Path:

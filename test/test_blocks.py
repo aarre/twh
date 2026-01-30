@@ -65,6 +65,12 @@ def test_apply_blocks_add(monkeypatch):
         calls.append((args, capture_output))
         if args[0] == "add":
             return subprocess.CompletedProcess(args, 0, stdout="Created task 45.\n", stderr="")
+        if args[0] == "45" and args[1] == "export":
+            payload = '[{"uuid":"uuid-45","id":45}]'
+            return subprocess.CompletedProcess(args, 0, stdout=payload, stderr="")
+        if args[0] == "32" and args[1] == "export":
+            payload = '[{"uuid":"uuid-32","id":32}]'
+            return subprocess.CompletedProcess(args, 0, stdout=payload, stderr="")
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
     monkeypatch.setattr(twh, "run_task_command", fake_run_task)
@@ -74,7 +80,9 @@ def test_apply_blocks_add(monkeypatch):
     assert exit_code == 0
     assert calls == [
         (["add", "New task"], True),
-        (["32", "modify", "depends:+45"], False),
+        (["45", "export"], True),
+        (["32", "export"], True),
+        (["uuid-32", "modify", "depends:uuid-45"], True),
     ]
 
 
@@ -98,7 +106,10 @@ def test_apply_blocks_modify(monkeypatch):
     def fake_run_task(args, capture_output=False, **_kwargs):
         calls.append((args, capture_output))
         if args[-1] == "export":
-            payload = '[{"uuid":"uuid-1","id":31}]'
+            if args[0] == "31":
+                payload = '[{"uuid":"uuid-1","id":31}]'
+            else:
+                payload = '[{"uuid":"uuid-32","id":32,"depends":"uuid-9"}]'
             return subprocess.CompletedProcess(args, 0, stdout=payload, stderr="")
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
@@ -109,7 +120,8 @@ def test_apply_blocks_modify(monkeypatch):
     assert exit_code == 0
     assert calls == [
         (["31", "export"], True),
-        (["32", "modify", "depends:+uuid-1"], False),
+        (["32", "export"], True),
+        (["uuid-32", "modify", "depends:uuid-9,uuid-1"], True),
     ]
 
 
@@ -133,7 +145,10 @@ def test_apply_blocks_modify_with_other_changes(monkeypatch):
     def fake_run_task(args, capture_output=False, **_kwargs):
         calls.append((args, capture_output))
         if args[-1] == "export":
-            payload = '[{"uuid":"uuid-31","id":31}]'
+            if args[0] == "31":
+                payload = '[{"uuid":"uuid-31","id":31}]'
+            else:
+                payload = '[{"uuid":"uuid-32","id":32,"depends":"uuid-9"}]'
             return subprocess.CompletedProcess(args, 0, stdout=payload, stderr="")
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
@@ -147,7 +162,8 @@ def test_apply_blocks_modify_with_other_changes(monkeypatch):
     assert calls == [
         (["31", "export"], True),
         (["31", "modify", "project:work"], False),
-        (["32", "modify", "depends:+uuid-31"], False),
+        (["32", "export"], True),
+        (["uuid-32", "modify", "depends:uuid-9,uuid-31"], True),
     ]
 
 

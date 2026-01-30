@@ -168,6 +168,15 @@ def test_run_interactive_add_runs_add_blocks_and_dominance(monkeypatch):
                 stdout="Created task 45.\n",
                 stderr="",
             )
+        if args[0] == "45" and args[1] == "export":
+            payload = '[{"uuid":"uuid-45","id":45}]'
+            return subprocess.CompletedProcess(args, 0, stdout=payload, stderr="")
+        if args[0] == "32" and args[1] == "export":
+            payload = '[{"uuid":"uuid-32","id":32}]'
+            return subprocess.CompletedProcess(args, 0, stdout=payload, stderr="")
+        if args[0] == "33" and args[1] == "export":
+            payload = '[{"uuid":"uuid-33","id":33}]'
+            return subprocess.CompletedProcess(args, 0, stdout=payload, stderr="")
         return subprocess.CompletedProcess(args, 0, stdout="Modified 1 task.\n", stderr="")
 
     dominance_calls = []
@@ -198,8 +207,11 @@ def test_run_interactive_add_runs_add_blocks_and_dominance(monkeypatch):
             ],
             True,
         ),
-        (["32", "modify", "depends:+45"], True),
-        (["33", "modify", "depends:+45"], True),
+        (["45", "export"], True),
+        (["32", "export"], True),
+        (["uuid-32", "modify", "depends:uuid-45"], True),
+        (["33", "export"], True),
+        (["uuid-33", "modify", "depends:uuid-45"], True),
     ]
     assert dominance_calls == [True]
 
