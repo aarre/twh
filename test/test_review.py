@@ -3,7 +3,7 @@ Tests for the review command logic.
 """
 
 import doctest
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -130,6 +130,29 @@ def test_review_task_from_json_parses_fields(
     assert task.mode == expected_mode
     assert task.annotations == expected_annotations
     assert task.description == payload["description"].strip()
+
+
+@pytest.mark.unit
+def test_review_task_from_json_parses_schedule_fields():
+    """
+    Ensure scheduled and wait timestamps are parsed.
+
+    Returns
+    -------
+    None
+        This test asserts schedule parsing.
+    """
+    payload = {
+        "uuid": "u1",
+        "description": "Scheduled move",
+        "scheduled": "20240102T120000Z",
+        "wait": "20240103T120000Z",
+    }
+
+    task = review.ReviewTask.from_json(payload)
+
+    assert task.scheduled == datetime(2024, 1, 2, 12, 0, 0, tzinfo=timezone.utc)
+    assert task.wait == datetime(2024, 1, 3, 12, 0, 0, tzinfo=timezone.utc)
 
 
 @pytest.mark.unit
@@ -637,6 +660,169 @@ def test_rank_candidates_respects_dominance():
 
     assert [item.task.uuid for item in ranked] == ["u1", "u2"]
 
+
+@pytest.mark.parametrize("field", ["scheduled", "wait"])
+@pytest.mark.unit
+def test_rank_candidates_defers_future_scheduled_or_wait_until(field):
+    """
+    Ensure future scheduled/wait moves are ordered after unscheduled moves.
+
+    Parameters
+    ----------
+    field : str
+        Field name to populate ("scheduled" or "wait").
+
+    Returns
+    -------
+    None
+        This test asserts schedule-aware ordering.
+    """
+    now = datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc)
+    future_time = now + review.IMMINENT_SCHEDULE_WINDOW + timedelta(hours=1)
+
+    unscheduled = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Unscheduled",
+        project=None,
+        depends=[],
+        imp=1,
+        urg=10,
+        opt=0,
+        diff=3.0,
+        mode=None,
+        dominates=[],
+        raw={},
+    )
+    scheduled = review.ReviewTask(
+        uuid="u2",
+        id=2,
+        description="Future scheduled",
+        project=None,
+        depends=[],
+        imp=10,
+        urg=0,
+        opt=10,
+        diff=1.0,
+        mode=None,
+        dominates=[],
+        raw={},
+        **{field: future_time},
+    )
+
+    ranked = review.rank_candidates([scheduled, unscheduled], current_mode=None, top=2, now=now)
+
+    assert [item.task.uuid for item in ranked] == ["u1", "u2"]
+
+
+@pytest.mark.parametrize("field", ["scheduled", "wait"])
+@pytest.mark.unit
+def test_rank_candidates_prioritizes_imminent_scheduled_or_wait_until(field):
+    """
+    Ensure imminent scheduled/wait moves are ordered before unscheduled moves.
+
+    Parameters
+    ----------
+    field : str
+        Field name to populate ("scheduled" or "wait").
+
+    Returns
+    -------
+    None
+        This test asserts imminent schedule ordering.
+    """
+    now = datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc)
+    imminent_time = now + timedelta(hours=1)
+
+    unscheduled = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Unscheduled",
+        project=None,
+        depends=[],
+        imp=10,
+        urg=0,
+        opt=10,
+        diff=1.0,
+        mode=None,
+        dominates=[],
+        raw={},
+    )
+    scheduled = review.ReviewTask(
+        uuid="u2",
+        id=2,
+        description="Imminent scheduled",
+        project=None,
+        depends=[],
+        imp=1,
+        urg=10,
+        opt=0,
+        diff=3.0,
+        mode=None,
+        dominates=[],
+        raw={},
+        **{field: imminent_time},
+    )
+
+    ranked = review.rank_candidates([unscheduled, scheduled], current_mode=None, top=2, now=now)
+
+    assert [item.task.uuid for item in ranked] == ["u2", "u1"]
+
+
+@pytest.mark.parametrize("field", ["scheduled", "wait"])
+@pytest.mark.unit
+def test_rank_candidates_orders_by_schedule_time(field):
+    """
+    Ensure earlier scheduled/wait times are ordered first.
+
+    Parameters
+    ----------
+    field : str
+        Field name to populate ("scheduled" or "wait").
+
+    Returns
+    -------
+    None
+        This test asserts schedule ordering by time.
+    """
+    now = datetime(2024, 1, 1, 9, 0, 0, tzinfo=timezone.utc)
+    earlier_time = now + review.IMMINENT_SCHEDULE_WINDOW + timedelta(hours=2)
+    later_time = now + review.IMMINENT_SCHEDULE_WINDOW + timedelta(days=1)
+
+    earlier = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Earlier",
+        project=None,
+        depends=[],
+        imp=1,
+        urg=5,
+        opt=1,
+        diff=2.0,
+        mode=None,
+        dominates=[],
+        raw={},
+        **{field: earlier_time},
+    )
+    later = review.ReviewTask(
+        uuid="u2",
+        id=2,
+        description="Later",
+        project=None,
+        depends=[],
+        imp=1,
+        urg=5,
+        opt=1,
+        diff=2.0,
+        mode=None,
+        dominates=[],
+        raw={},
+        **{field: later_time},
+    )
+
+    ranked = review.rank_candidates([later, earlier], current_mode=None, top=2, now=now)
+
+    assert [item.task.uuid for item in ranked] == ["u1", "u2"]
 
 @pytest.mark.unit
 def test_format_candidate_output_includes_annotations_and_dominance():

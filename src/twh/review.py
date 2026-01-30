@@ -8,7 +8,7 @@ from __future__ import annotations
 import math
 import subprocess
 import sys
-from datetime import datetime, timezone, tzinfo
+from datetime import datetime, timedelta, timezone, tzinfo
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
@@ -21,6 +21,9 @@ from .taskwarrior import (
 
 if TYPE_CHECKING:
     from .dominance import DominanceState
+
+
+IMMINENT_SCHEDULE_WINDOW = timedelta(hours=24)
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,10 @@ class ReviewTask:
         Estimated difficulty in hours.
     mode : Optional[str]
         Mode associated with the move.
+    scheduled : Optional[datetime]
+        Scheduled datetime for the move.
+    wait : Optional[datetime]
+        Wait-until datetime for the move.
     dominates : List[str]
         UUIDs explicitly dominated by this move.
     dominated_by : List[str]
@@ -70,6 +77,8 @@ class ReviewTask:
     opt: Optional[int]
     diff: Optional[float] = None
     mode: Optional[str] = None
+    scheduled: Optional[datetime] = None
+    wait: Optional[datetime] = None
     dominates: List[str] = field(default_factory=list)
     dominated_by: List[str] = field(default_factory=list)
     annotations: List[str] = field(default_factory=list)
@@ -132,6 +141,8 @@ class ReviewTask:
             opt=parse_int("opt"),
             diff=parse_float("diff"),
             mode=normalize_mode(payload.get("mode")),
+            scheduled=parse_task_timestamp(payload.get("scheduled")),
+            wait=parse_task_timestamp(payload.get("wait")),
             dominates=parse_uuid_list(payload.get("dominates")),
             dominated_by=parse_uuid_list(payload.get("dominated_by")),
             annotations=parse_annotations(payload.get("annotations")),
@@ -344,6 +355,103 @@ def format_task_timestamp(value: Optional[str]) -> str:
     if dt.tzinfo is not None:
         dt = dt.astimezone(get_local_timezone())
     return format_local_datetime(dt)
+
+
+def normalize_review_datetime(value: datetime) -> datetime:
+    """
+    Normalize datetimes for schedule comparisons.
+
+    Parameters
+    ----------
+    value : datetime
+        Datetime to normalize.
+
+    Returns
+    -------
+    datetime
+        Datetime localized to the system timezone.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=get_local_timezone())
+    return value.astimezone(get_local_timezone())
+
+
+def effective_schedule_time(task: ReviewTask) -> Optional[datetime]:
+    """
+    Return the effective schedule time for a move.
+
+    When both scheduled and wait-until values are set, the later timestamp is
+    treated as the effective schedule time.
+
+    Parameters
+    ----------
+    task : ReviewTask
+        Move to inspect.
+
+    Returns
+    -------
+    Optional[datetime]
+        Effective schedule time, or None when unset.
+    """
+    times = []
+    if task.scheduled:
+        times.append(normalize_review_datetime(task.scheduled))
+    if task.wait:
+        times.append(normalize_review_datetime(task.wait))
+    if not times:
+        return None
+    return max(times)
+
+
+def schedule_sort_key(
+    task: ReviewTask,
+    now: datetime,
+    imminent_window: timedelta = IMMINENT_SCHEDULE_WINDOW,
+) -> Tuple[int, datetime]:
+    """
+    Build the schedule-aware sort key for a move.
+
+    Parameters
+    ----------
+    task : ReviewTask
+        Move to evaluate.
+    now : datetime
+        Reference time for comparing schedules.
+    imminent_window : timedelta, optional
+        Imminent window used to prioritize scheduled moves.
+
+    Returns
+    -------
+    Tuple[int, datetime]
+        Tuple of (group, schedule time) for sorting.
+
+    Examples
+    --------
+    >>> task = ReviewTask("u1", 1, "Move", None, [], 1, 1, 1)
+    >>> schedule_sort_key(task, datetime(2024, 1, 1, 9, 0, 0))[0]
+    1
+    >>> scheduled = ReviewTask(
+    ...     "u2",
+    ...     2,
+    ...     "Scheduled",
+    ...     None,
+    ...     [],
+    ...     1,
+    ...     1,
+    ...     1,
+    ...     scheduled=datetime(2024, 1, 1, 10, 0, 0),
+    ... )
+    >>> schedule_sort_key(scheduled, datetime(2024, 1, 1, 9, 0, 0))[0]
+    0
+    """
+    now_local = normalize_review_datetime(now)
+    scheduled_time = effective_schedule_time(task)
+    if scheduled_time is None:
+        return 1, now_local
+    cutoff = now_local + imminent_window
+    if scheduled_time <= cutoff:
+        return 0, scheduled_time
+    return 2, scheduled_time
 
 
 def parse_annotations(value: Any) -> List[str]:
@@ -814,6 +922,7 @@ def rank_candidates(
     current_mode: Optional[str],
     top: int,
     dominance_tiers: Optional[List[List[ReviewTask]]] = None,
+    now: Optional[datetime] = None,
 ) -> List[ScoredTask]:
     """
     Rank candidate moves by dominance tier and score.
@@ -829,6 +938,8 @@ def rank_candidates(
     dominance_tiers : Optional[List[List[ReviewTask]]]
         Dominance tiers to apply (highest first). When omitted, tiers are built
         from the candidate set.
+    now : Optional[datetime]
+        Reference time for schedule-aware ordering (default: current time).
 
     Returns
     -------
@@ -851,9 +962,11 @@ def rank_candidates(
         for task in tier
     }
     default_tier = len(dominance_tiers or [])
+    now_value = normalize_review_datetime(now or datetime.now().astimezone())
     scored.sort(
         key=lambda item: (
             tier_index.get(item.task.uuid, default_tier),
+            *schedule_sort_key(item.task, now_value),
             -item.score,
             item.task.id if item.task.id is not None else 10**9,
             item.task.uuid,

@@ -43,6 +43,7 @@ Already implemented, among other requirements:
 * `twh review` outputs a top-move list that includes move descriptions, annotations, and a short list of first-order dominance relations.
 * Before any operation that could modify move descriptions (including writing UDAs that might be misconfigured), halt and ask for guidance. If a required UDA is missing and its absence could overwrite descriptions, stop and ask for guidance before proceeding.
 * `twh add` is an interactive flow that prompts for description, project, tags, due date, blocks, and metadata (imp/urg/opt/diff/mode), then runs dominance sorting.
+* `twh review` ordering considers `Scheduled` and `Wait until`, prioritizing imminent/past times and otherwise preferring unscheduled moves ahead of future scheduled ones (using the later timestamp when both are set).
 
 ## Project notes
 
