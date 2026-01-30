@@ -156,6 +156,7 @@ def test_apply_context_to_add_args(
         (["simple"], False),
         (["graph"], False),
         (["review"], False),
+        (["dominance"], False),
         (["--help"], False),
     ],
 )
@@ -445,6 +446,7 @@ def test_graph_falls_back_to_ascii_when_render_fails(
         ["twh", "tree"],
         ["twh", "graph"],
         ["twh", "review"],
+        ["twh", "dominance"],
         ["twh", "--help"],
     ],
 )

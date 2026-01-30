@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hierarchical view of Taskwarrior tasks by dependency.
+Hierarchical view of Taskwarrior moves by dependency.
 """
 
 import json
@@ -1406,8 +1406,8 @@ def print_tree_normal(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]]
     """
     Print dependency list with unblocked tasks at top level.
 
-    Tasks that are not blocked by other tasks are shown at the top level,
-    with their dependencies (blocking tasks) indented below them.
+    Moves that are not blocked by other moves are shown at the top level,
+    with their dependencies (blocking moves) indented below them.
 
     Parameters
     ----------
@@ -1487,8 +1487,8 @@ def print_tree_reverse(task_map: Dict[str, Dict], depends_on: Dict[str, Set[str]
     """
     Print dependency list with blocking tasks at top level.
 
-    Tasks that have no dependencies (blocking tasks) are shown at the top level,
-    with tasks that depend on them indented below.
+    Moves that have no dependencies (blocking moves) are shown at the top level,
+    with moves that depend on them indented below.
 
     Parameters
     ----------
@@ -1596,7 +1596,7 @@ def list_tasks(
     reverse: bool = False,
 ) -> None:
     """
-    Display Taskwarrior tasks in hierarchical dependency list view.
+    Display Taskwarrior moves in hierarchical dependency list view.
 
     Uses Taskwarrior JSON export data with a custom formatter that preserves
     hierarchy, description-first layout, and Taskwarrior-like colors.
@@ -1730,7 +1730,7 @@ def build_app():
     """
     import typer
 
-    app = typer.Typer(help="Hierarchical views of Taskwarrior tasks")
+    app = typer.Typer(help="Hierarchical views of Taskwarrior moves")
 
     @app.command("list")
     def list_cmd(
@@ -1742,7 +1742,7 @@ def build_app():
             False,
             "--reverse",
             "-r",
-            help="Show most-depended-upon tasks at top level (reverse view)",
+            help="Show most-depended-upon moves at top level (reverse view)",
         ),
     ):
         try:
@@ -1760,7 +1760,7 @@ def build_app():
             False,
             "--reverse",
             "-r",
-            help="Show most-depended-upon tasks at top level (reverse view)",
+            help="Show most-depended-upon moves at top level (reverse view)",
         ),
     ):
         tree_alias(reverse=reverse)
@@ -1828,8 +1828,27 @@ def build_app():
         except ValueError as exc:
             raise typer.BadParameter(str(exc)) from exc
 
-    @app.command("review")
+    @app.command(
+        "dominance",
+        help="Collect dominance ordering for moves.",
+        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    )
+    def dominance_cmd(ctx: typer.Context):
+        from . import dominance as dominance_module
+
+        try:
+            exit_code = dominance_module.run_dominance(filters=list(ctx.args))
+        except FileNotFoundError:
+            print("Error: `task` command not found.", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
+    @app.command(
+        "review",
+        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    )
     def review_cmd(
+        ctx: typer.Context,
         mode: Optional[str] = typer.Option(
             None,
             "--mode",
@@ -1838,32 +1857,32 @@ def build_app():
         limit: int = typer.Option(
             20,
             "--limit",
-            help="Max tasks to list when showing missing metadata.",
+            help="Max moves to list when showing missing metadata.",
         ),
         top: int = typer.Option(
             5,
             "--top",
-            help="Show top N candidate tasks.",
+            help="Show top N candidate moves.",
         ),
         strict_mode: bool = typer.Option(
             False,
             "--strict-mode",
-            help="Only keep tasks with matching modes.",
+            help="Only keep moves with matching modes.",
         ),
         include_dominated: bool = typer.Option(
-            False,
+            True,
             "--include-dominated",
-            help="Include tasks dominated by other tasks.",
+            help="Include moves dominated by other moves.",
         ),
         wizard: bool = typer.Option(
             False,
             "--wizard",
-            help="Interactively fill missing fields for ready tasks.",
+            help="Interactively fill missing fields for moves in scope.",
         ),
         wizard_once: bool = typer.Option(
             False,
             "--wizard-once",
-            help="Only fill missing fields for the first ready task.",
+            help="Only fill missing fields for the first move in scope.",
         ),
     ):
         from . import review as review_module
@@ -1877,6 +1896,7 @@ def build_app():
                 include_dominated=include_dominated,
                 wizard=wizard,
                 wizard_once=wizard_once,
+                filters=list(ctx.args),
             )
         except FileNotFoundError:
             print("Error: `task` command not found.", file=sys.stderr)
@@ -1886,7 +1906,7 @@ def build_app():
     return app
 
 
-TWH_COMMANDS = {"list", "reverse", "tree", "graph", "simple", "review"}
+TWH_COMMANDS = {"list", "reverse", "tree", "graph", "simple", "review", "dominance"}
 TWH_HELP_ARGS = {"-h", "--help", "--install-completion", "--show-completion"}
 
 

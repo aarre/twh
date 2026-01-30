@@ -1,45 +1,58 @@
 #!/usr/bin/env python3
 """
-Review Taskwarrior metadata and suggest next actions.
+Review Taskwarrior move metadata and suggest next actions.
 """
 
 from __future__ import annotations
 
 import math
 import subprocess
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
-from .taskwarrior import parse_dependencies, read_tasks_from_json
+from .taskwarrior import (
+    missing_udas,
+    parse_dependencies,
+    read_tasks_from_json,
+)
+
+if TYPE_CHECKING:
+    from .dominance import DominanceState
 
 
 @dataclass(frozen=True)
 class ReviewTask:
     """
-    Normalized Taskwarrior task data for review workflows.
+    Normalized Taskwarrior move data for review workflows.
 
     Attributes
     ----------
     uuid : str
-        Task UUID.
+        Move UUID.
     id : Optional[int]
-        Task ID, if available.
+        Move ID, if available.
     description : str
-        Task description.
+        Move description.
     project : Optional[str]
         Project name.
     depends : List[str]
-        UUIDs of tasks this task depends on.
+        UUIDs of moves this move depends on.
     imp : Optional[int]
         Importance horizon in days.
     urg : Optional[int]
         Urgency horizon in days.
     opt : Optional[int]
         Option value (0-10).
+    diff : Optional[float]
+        Estimated difficulty in hours.
     mode : Optional[str]
-        Mode associated with the task.
+        Mode associated with the move.
     dominates : List[str]
-        UUIDs explicitly dominated by this task.
+        UUIDs explicitly dominated by this move.
+    dominated_by : List[str]
+        UUIDs that dominate this move.
+    annotations : List[str]
+        Annotation descriptions attached to the move.
     raw : Dict[str, Any]
         Raw Taskwarrior payload.
     """
@@ -52,9 +65,12 @@ class ReviewTask:
     imp: Optional[int]
     urg: Optional[int]
     opt: Optional[int]
-    mode: Optional[str]
-    dominates: List[str]
-    raw: Dict[str, Any]
+    diff: Optional[float] = None
+    mode: Optional[str] = None
+    dominates: List[str] = field(default_factory=list)
+    dominated_by: List[str] = field(default_factory=list)
+    annotations: List[str] = field(default_factory=list)
+    raw: Dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
     def from_json(payload: Dict[str, Any]) -> "ReviewTask":
@@ -69,12 +85,12 @@ class ReviewTask:
         Returns
         -------
         ReviewTask
-            Parsed task instance.
+            Parsed move instance.
 
         Examples
         --------
-        >>> task = ReviewTask.from_json({"uuid": "u1", "description": "Test", "imp": "3"})
-        >>> task.imp
+        >>> move = ReviewTask.from_json({"uuid": "u1", "description": "Test", "imp": "3"})
+        >>> move.imp
         3
         """
 
@@ -84,6 +100,15 @@ class ReviewTask:
                 return None
             try:
                 return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        def parse_float(key: str) -> Optional[float]:
+            value = payload.get(key)
+            if value is None or value == "":
+                return None
+            try:
+                return float(value)
             except (TypeError, ValueError):
                 return None
 
@@ -102,8 +127,11 @@ class ReviewTask:
             imp=parse_int("imp"),
             urg=parse_int("urg"),
             opt=parse_int("opt"),
+            diff=parse_float("diff"),
             mode=normalize_mode(payload.get("mode")),
             dominates=parse_uuid_list(payload.get("dominates")),
+            dominated_by=parse_uuid_list(payload.get("dominated_by")),
+            annotations=parse_annotations(payload.get("annotations")),
             raw=payload,
         )
 
@@ -111,16 +139,16 @@ class ReviewTask:
 @dataclass(frozen=True)
 class MissingMetadata:
     """
-    Record missing metadata for a review task.
+    Record missing metadata for a review move.
 
     Attributes
     ----------
     task : ReviewTask
-        Task with missing metadata.
+        Move with missing metadata.
     missing : Tuple[str, ...]
         Missing metadata field names.
     is_ready : bool
-        True when the task is ready to act on.
+        True when the move is ready to act on.
     """
 
     task: ReviewTask
@@ -131,14 +159,14 @@ class MissingMetadata:
 @dataclass(frozen=True)
 class ScoredTask:
     """
-    Task paired with its review score.
+    Move paired with its review score.
 
     Attributes
     ----------
     task : ReviewTask
-        Task being scored.
+        Move being scored.
     score : float
-        Composite score for the task.
+        Composite score for the move.
     components : Dict[str, float]
         Score components for diagnostics.
     """
@@ -156,9 +184,9 @@ class ReviewReport:
     Attributes
     ----------
     missing : List[MissingMetadata]
-        Tasks missing metadata.
+        Moves missing metadata.
     candidates : List[ScoredTask]
-        Scored ready tasks.
+        Scored ready moves.
     """
 
     missing: List[MissingMetadata]
@@ -225,19 +253,63 @@ def parse_uuid_list(value: Any) -> List[str]:
     return []
 
 
+def parse_annotations(value: Any) -> List[str]:
+    """
+    Parse annotation payloads into human-readable strings.
+
+    Parameters
+    ----------
+    value : Any
+        Annotation payload from Taskwarrior export.
+
+    Returns
+    -------
+    List[str]
+        Annotation descriptions (optionally prefixed with entry timestamps).
+
+    Examples
+    --------
+    >>> parse_annotations([{"description": "Note"}])
+    ['Note']
+    >>> parse_annotations([])
+    []
+    """
+    if not value:
+        return []
+    annotations: List[str] = []
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                description = str(item.get("description", "")).strip()
+                entry = str(item.get("entry", "")).strip()
+                if description and entry:
+                    annotations.append(f"{entry}: {description}")
+                elif description:
+                    annotations.append(description)
+                else:
+                    continue
+            else:
+                raw = str(item).strip()
+                if raw:
+                    annotations.append(raw)
+        return annotations
+    raw = str(value).strip()
+    return [raw] if raw else []
+
+
 def ready_tasks(pending: Iterable[ReviewTask]) -> List[ReviewTask]:
     """
-    Return tasks that are ready (no pending dependencies).
+    Return moves that are ready (no pending dependencies).
 
     Parameters
     ----------
     pending : Iterable[ReviewTask]
-        Pending tasks to evaluate.
+        Pending moves to evaluate.
 
     Returns
     -------
     List[ReviewTask]
-        Ready tasks.
+        Ready moves.
     """
     pending_list = list(pending)
     pending_uuids = {task.uuid for task in pending_list}
@@ -252,12 +324,12 @@ def ready_tasks(pending: Iterable[ReviewTask]) -> List[ReviewTask]:
 
 def missing_fields(task: ReviewTask) -> Tuple[str, ...]:
     """
-    Return the missing metadata fields for a task.
+    Return the missing metadata fields for a move.
 
     Parameters
     ----------
     task : ReviewTask
-        Task to inspect.
+        Move to inspect.
 
     Returns
     -------
@@ -266,9 +338,9 @@ def missing_fields(task: ReviewTask) -> Tuple[str, ...]:
 
     Examples
     --------
-    >>> task = ReviewTask("u1", 1, "x", None, [], None, 2, None, None, [], {})
-    >>> missing_fields(task)
-    ('imp', 'opt', 'mode')
+    >>> move = ReviewTask("u1", 1, "x", None, [], None, 2, None)
+    >>> missing_fields(move)
+    ('imp', 'opt', 'diff', 'mode')
     """
     missing: List[str] = []
     if task.imp is None:
@@ -277,6 +349,8 @@ def missing_fields(task: ReviewTask) -> Tuple[str, ...]:
         missing.append("urg")
     if task.opt is None:
         missing.append("opt")
+    if task.diff is None:
+        missing.append("diff")
     if not task.mode:
         missing.append("mode")
     return tuple(missing)
@@ -285,16 +359,19 @@ def missing_fields(task: ReviewTask) -> Tuple[str, ...]:
 def collect_missing_metadata(
     pending: Iterable[ReviewTask],
     ready: Iterable[ReviewTask],
+    dominance_missing: Optional[set[str]] = None,
 ) -> List[MissingMetadata]:
     """
-    Collect tasks missing metadata, ordering ready items first.
+    Collect moves missing metadata, ordering ready items first.
 
     Parameters
     ----------
     pending : Iterable[ReviewTask]
-        Pending tasks.
+        Pending moves.
     ready : Iterable[ReviewTask]
-        Ready tasks.
+        Ready moves.
+    dominance_missing : Optional[set[str]]
+        UUIDs missing dominance ordering.
 
     Returns
     -------
@@ -302,9 +379,13 @@ def collect_missing_metadata(
         Missing metadata records.
     """
     ready_uuids = {task.uuid for task in ready}
+    dominance_missing = dominance_missing or set()
     items: List[MissingMetadata] = []
     for task in pending:
-        missing = missing_fields(task)
+        missing = list(missing_fields(task))
+        if task.uuid in dominance_missing:
+            missing.append("dominance")
+        missing = tuple(missing)
         if not missing:
             continue
         items.append(
@@ -324,19 +405,43 @@ def collect_missing_metadata(
     return items
 
 
+def _build_dominance_context(
+    pending: Sequence[ReviewTask],
+) -> Tuple["DominanceState", List[List[ReviewTask]], set[str]]:
+    """
+    Build dominance state, tiers, and missing UUIDs for the scope.
+
+    Parameters
+    ----------
+    pending : Sequence[ReviewTask]
+        Pending moves in scope.
+
+    Returns
+    -------
+    Tuple[DominanceState, List[List[ReviewTask]], set[str]]
+        Dominance state, ordered tiers, and missing UUIDs.
+    """
+    from . import dominance as dominance_module
+
+    state = dominance_module.build_dominance_state(pending)
+    missing = dominance_module.dominance_missing_uuids(pending, state)
+    tiers = dominance_module.build_tiers_from_state(pending, state)
+    return state, tiers, missing
+
+
 def dominated_set(tasks: Iterable[ReviewTask]) -> set[str]:
     """
-    Return UUIDs explicitly dominated by other tasks.
+    Return UUIDs explicitly dominated by other moves.
 
     Parameters
     ----------
     tasks : Iterable[ReviewTask]
-        Tasks to scan for dominance.
+        Moves to scan for dominance.
 
     Returns
     -------
     set[str]
-        UUIDs that are dominated by other tasks.
+        UUIDs that are dominated by other moves.
     """
     dominated: set[str] = set()
     for task in tasks:
@@ -346,14 +451,14 @@ def dominated_set(tasks: Iterable[ReviewTask]) -> set[str]:
 
 def mode_multiplier(current: Optional[str], required: Optional[str]) -> float:
     """
-    Compute the multiplier based on task mode alignment.
+    Compute the multiplier based on move mode alignment.
 
     Parameters
     ----------
     current : Optional[str]
         Current mode.
     required : Optional[str]
-        Task-required mode.
+        Move-required mode.
 
     Returns
     -------
@@ -374,12 +479,12 @@ def score_task(
     current_mode: Optional[str],
 ) -> Tuple[float, Dict[str, float]]:
     """
-    Score a task based on importance, urgency, option value, and mode.
+    Score a move based on importance, urgency, option value, difficulty, and mode.
 
     Parameters
     ----------
     task : ReviewTask
-        Task to score.
+        Move to score.
     current_mode : Optional[str]
         Current mode for scoring.
 
@@ -393,23 +498,36 @@ def score_task(
         missing_penalty *= 0.92
     if task.opt is None:
         missing_penalty *= 0.96
+    if task.diff is None:
+        missing_penalty *= 0.95
 
     imp_days = max(0, task.imp or 0)
     urg_days = max(0, task.urg or 0)
     opt = max(0, min(10, task.opt if task.opt is not None else 0))
+    diff_hours = max(0.0, float(task.diff) if task.diff is not None else 0.0)
 
     imp_score = math.log1p(imp_days)
-    urg_score = 1.0 / (urg_days + 1.0)
+    urg_hours = max(urg_days * 24.0, 1.0)
+    time_pressure = diff_hours / urg_hours
+    urg_score = (1.0 / (urg_days + 1.0)) * (1.0 + time_pressure)
     opt_score = opt / 10.0
+    diff_ease = 1.0 / (diff_hours + 1.0)
 
     mode_mult = mode_multiplier(current_mode, task.mode)
-    base = (1.4 * urg_score) + (1.0 * imp_score) + (0.9 * opt_score)
+    base = (
+        (1.4 * urg_score)
+        + (1.0 * imp_score)
+        + (0.9 * opt_score)
+        + (0.25 * diff_ease)
+    )
     total = base * mode_mult * missing_penalty
 
     components = {
         "imp_score": imp_score,
         "urg_score": urg_score,
         "opt_score": opt_score,
+        "diff_score": diff_ease,
+        "time_pressure": time_pressure,
         "mode_mult": mode_mult,
         "missing_mult": missing_penalty,
         "total": total,
@@ -419,12 +537,12 @@ def score_task(
 
 def format_task_rationale(task: ReviewTask, components: Dict[str, float]) -> str:
     """
-    Format a task rationale block for review output.
+    Format a move rationale block for review output.
 
     Parameters
     ----------
     task : ReviewTask
-        Task to describe.
+        Move to describe.
     components : Dict[str, float]
         Score component data.
 
@@ -436,20 +554,119 @@ def format_task_rationale(task: ReviewTask, components: Dict[str, float]) -> str
     imp = task.imp if task.imp is not None else "?"
     urg = task.urg if task.urg is not None else "?"
     opt = task.opt if task.opt is not None else "?"
+    diff = task.diff if task.diff is not None else "?"
     mode = task.mode or "-"
     proj = task.project or "-"
-    task_id = str(task.id) if task.id is not None else task.uuid[:8]
+    move_id = str(task.id) if task.id is not None else task.uuid[:8]
     return (
-        f"[{task_id}] {task.description}\n"
-        f"  project={proj} mode={mode} imp={imp}d urg={urg}d opt={opt}\n"
+        f"[{move_id}] {task.description}\n"
+        f"  project={proj} mode={mode} imp={imp}d urg={urg}d opt={opt} diff={diff}h\n"
         "  "
         f"score={components['total']:.3f} "
         f"(urg={components['urg_score']:.3f}, "
         f"imp={components['imp_score']:.3f}, "
         f"opt={components['opt_score']:.2f}, "
+        f"diff={components['diff_score']:.2f}, "
         f"mode*{components['mode_mult']:.2f}, "
         f"spec*{components['missing_mult']:.2f})"
     )
+
+
+def format_annotation_lines(task: ReviewTask) -> List[str]:
+    """
+    Format annotation lines for a move.
+
+    Parameters
+    ----------
+    task : ReviewTask
+        Move to format.
+
+    Returns
+    -------
+    List[str]
+        Annotation lines prefixed for display.
+    """
+    return [f"  Annotation: {note}" for note in task.annotations]
+
+
+def format_dominance_lines(
+    task: ReviewTask,
+    state: "DominanceState",
+    limit: int = 3,
+) -> List[str]:
+    """
+    Format first-order dominance lines for a move.
+
+    Parameters
+    ----------
+    task : ReviewTask
+        Move to format.
+    state : DominanceState
+        Dominance graph state.
+    limit : int, optional
+        Maximum dominance edges to show.
+
+    Returns
+    -------
+    List[str]
+        Dominance summary lines.
+    """
+    dominated = sorted(
+        state.dominates.get(task.uuid, set()),
+        key=lambda uuid: (
+            state.tasks[uuid].id if state.tasks[uuid].id is not None else 10**9,
+            uuid,
+        ),
+    )
+    lines: List[str] = []
+    for uuid in dominated[:limit]:
+        target = state.tasks.get(uuid)
+        if not target:
+            continue
+        target_id = str(target.id) if target.id is not None else target.uuid[:8]
+        description = target.description.strip()
+        if description:
+            lines.append(f"  Dominates move ID {target_id}: {description}")
+        else:
+            lines.append(f"  Dominates move ID {target_id}")
+    if len(dominated) > limit:
+        remaining = len(dominated) - limit
+        lines.append(f"  Dominates {remaining} more move(s)")
+    return lines
+
+
+def format_candidate_output(
+    candidate: ScoredTask,
+    dominance_state: "DominanceState",
+    dominance_limit: int = 3,
+) -> List[str]:
+    """
+    Format the output lines for a scored move.
+
+    Parameters
+    ----------
+    candidate : ScoredTask
+        Scored move candidate.
+    dominance_state : DominanceState
+        Dominance graph state.
+    dominance_limit : int, optional
+        Maximum dominance edges to show.
+
+    Returns
+    -------
+    List[str]
+        Lines ready to print.
+    """
+    lines = format_task_rationale(candidate.task, candidate.components).splitlines()
+    lines.extend(format_annotation_lines(candidate.task))
+    lines.extend(
+        format_dominance_lines(
+            candidate.task,
+            dominance_state,
+            limit=dominance_limit,
+        )
+    )
+    return lines
 
 
 def filter_candidates(
@@ -459,23 +676,23 @@ def filter_candidates(
     include_dominated: bool,
 ) -> List[ReviewTask]:
     """
-    Filter ready tasks based on mode and dominance rules.
+    Filter ready moves based on mode and dominance rules.
 
     Parameters
     ----------
     ready : Iterable[ReviewTask]
-        Ready tasks.
+        Ready moves.
     current_mode : Optional[str]
         Current mode context.
     strict_mode : bool
         Require mode match when True.
     include_dominated : bool
-        Keep dominated tasks when True.
+        Keep dominated moves when True.
 
     Returns
     -------
     List[ReviewTask]
-        Filtered candidate tasks.
+        Filtered candidate moves.
     """
     ready_list = list(ready)
     dominated = set() if include_dominated else dominated_set(ready_list)
@@ -499,29 +716,52 @@ def rank_candidates(
     candidates: Iterable[ReviewTask],
     current_mode: Optional[str],
     top: int,
+    dominance_tiers: Optional[List[List[ReviewTask]]] = None,
 ) -> List[ScoredTask]:
     """
-    Rank candidate tasks by score.
+    Rank candidate moves by dominance tier and score.
 
     Parameters
     ----------
     candidates : Iterable[ReviewTask]
-        Tasks to score.
+        Moves to score.
     current_mode : Optional[str]
         Current mode for scoring.
     top : int
         Number of top candidates to return.
+    dominance_tiers : Optional[List[List[ReviewTask]]]
+        Dominance tiers to apply (highest first). When omitted, tiers are built
+        from the candidate set.
 
     Returns
     -------
     List[ScoredTask]
         Ranked candidates.
     """
+    candidate_list = list(candidates)
     scored: List[ScoredTask] = []
-    for task in candidates:
+    for task in candidate_list:
         score, components = score_task(task, current_mode)
         scored.append(ScoredTask(task=task, score=score, components=components))
-    scored.sort(key=lambda item: item.score, reverse=True)
+    if dominance_tiers is None:
+        from . import dominance as dominance_module
+
+        state = dominance_module.build_dominance_state(candidate_list)
+        dominance_tiers = dominance_module.build_tiers_from_state(candidate_list, state)
+    tier_index = {
+        task.uuid: idx
+        for idx, tier in enumerate(dominance_tiers or [])
+        for task in tier
+    }
+    default_tier = len(dominance_tiers or [])
+    scored.sort(
+        key=lambda item: (
+            tier_index.get(item.task.uuid, default_tier),
+            -item.score,
+            item.task.id if item.task.id is not None else 10**9,
+            item.task.uuid,
+        )
+    )
     return scored[:max(0, top)]
 
 
@@ -533,18 +773,18 @@ def build_review_report(
     top: int,
 ) -> ReviewReport:
     """
-    Build a review report from pending tasks.
+    Build a review report from pending moves.
 
     Parameters
     ----------
     pending : Iterable[ReviewTask]
-        Pending tasks.
+        Pending moves.
     current_mode : Optional[str]
         Current mode for filtering/scoring.
     strict_mode : bool
         Require strict mode matching when True.
     include_dominated : bool
-        Include dominated tasks when True.
+        Include dominated moves when True.
     top : int
         Number of candidates to include.
 
@@ -555,14 +795,26 @@ def build_review_report(
     """
     pending_list = list(pending)
     ready = ready_tasks(pending_list)
-    missing = collect_missing_metadata(pending_list, ready)
+    _dominance_state, dominance_tiers, dominance_missing = _build_dominance_context(
+        pending_list
+    )
+    missing = collect_missing_metadata(
+        pending_list,
+        ready,
+        dominance_missing=dominance_missing,
+    )
     candidates = filter_candidates(
         ready,
         current_mode=current_mode,
         strict_mode=strict_mode,
         include_dominated=include_dominated,
     )
-    ranked = rank_candidates(candidates, current_mode=current_mode, top=top)
+    ranked = rank_candidates(
+        candidates,
+        current_mode=current_mode,
+        top=top,
+        dominance_tiers=dominance_tiers,
+    )
     return ReviewReport(missing=missing, candidates=ranked)
 
 
@@ -576,7 +828,7 @@ def interactive_fill_missing(
     Parameters
     ----------
     task : ReviewTask
-        Task to update.
+        Move to update.
     input_func : Callable[[str], str], optional
         Input function for prompts (default: input).
 
@@ -586,39 +838,54 @@ def interactive_fill_missing(
         Fields to update.
     """
     updates: Dict[str, str] = {}
-    print("\nFill missing fields (press Enter to skip)")
+    print("\nFill missing fields for this move (press Enter to skip)")
     if task.imp is None:
-        value = input_func("  imp days (importance horizon - for how many days will you remember whether you did this?): ").strip()
+        value = input_func(
+            "  Importance horizon - how long will you remember whether this move was done? (days): "
+        ).strip()
         if value:
             updates["imp"] = value
     if task.urg is None:
-        value = input_func("  urg days (urgency horizon - how many days until doing this loses all value?): ").strip()
+        value = input_func(
+            "  Urgency horizon - how long before acting loses value? (days): "
+        ).strip()
         if value:
             updates["urg"] = value
     if task.opt is None:
-        value = input_func("  opt 0-10 (option value - to what extent does this move, "
-                           "if taken now, preserve or increase my future options? For example, does it unblock multiple downstream tasks; "
-                           "clarify scope, structure, or uncertainty; generate artifacts others can react to; "
-                           "or reduce coordination risk (waiting on others, data access, approvals)): ").strip()
+        value = input_func(
+            "  Option value - to what extent does this move preserve or expand future options? (0-10): "
+        ).strip()
         if value:
             updates["opt"] = value
+    if task.diff is None:
+        value = input_func("  Difficulty, i.e., estimated effort (hours): ").strip()
+        if value:
+            updates["diff"] = value
     if not task.mode:
-        value = input_func("  mode (e.g., analysis/structural/developmental/writing/illustration/copyediting/programming/mechanical/errand/chore): ").strip()
+        value = input_func(
+            "  Mode (e.g., analysis/research/writing/editorial/illustration/programming/teaching/chore/errand): "
+        ).strip()
         if value:
             updates["mode"] = value
     return updates
 
 
-def apply_updates(uuid: str, updates: Dict[str, str]) -> None:
+def apply_updates(
+    uuid: str,
+    updates: Dict[str, str],
+    get_setting: Callable[[str], Optional[str]] = None,
+) -> None:
     """
-    Apply updates to a Taskwarrior task.
+    Apply updates to a Taskwarrior move.
 
     Parameters
     ----------
     uuid : str
-        Task UUID.
+        Move UUID.
     updates : Dict[str, str]
         Field updates.
+    get_setting : Callable[[str], Optional[str]], optional
+        Getter for Taskwarrior settings (default: taskwarrior helper).
 
     Returns
     -------
@@ -627,25 +894,45 @@ def apply_updates(uuid: str, updates: Dict[str, str]) -> None:
     """
     if not updates:
         return
+    if get_setting is None:
+        from .taskwarrior import get_taskwarrior_setting
+
+        get_setting = get_taskwarrior_setting
+    missing = missing_udas(updates.keys(), get_setting=get_setting)
+    if missing:
+        missing_list = ", ".join(missing)
+        raise RuntimeError(
+            "Missing Taskwarrior UDA(s): "
+            f"{missing_list}. Aborting to avoid modifying move descriptions."
+        )
     parts = [f"{key}:{value}" for key, value in updates.items()]
     run_task_command([uuid, "modify", *parts])
 
 
-def load_pending_tasks() -> List[ReviewTask]:
+def load_pending_tasks(filters: Optional[Sequence[str]] = None) -> List[ReviewTask]:
     """
-    Load pending tasks from Taskwarrior export.
+    Load pending moves from Taskwarrior export.
+
+    Parameters
+    ----------
+    filters : Optional[Sequence[str]]
+        Additional Taskwarrior filter tokens.
 
     Returns
     -------
     List[ReviewTask]
-        Pending tasks.
+        Pending moves.
 
     Raises
     ------
     RuntimeError
         If Taskwarrior export fails.
     """
-    result = run_task_command(["status:pending", "export"], capture_output=True)
+    filter_tokens = list(filters) if filters else []
+    result = run_task_command(
+        [*filter_tokens, "status:pending", "export"],
+        capture_output=True,
+    )
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
         raise RuntimeError(stderr or "Taskwarrior export failed.")
@@ -666,27 +953,30 @@ def run_review(
     include_dominated: bool,
     wizard: bool,
     wizard_once: bool,
+    filters: Optional[Sequence[str]] = None,
     input_func: Callable[[str], str] = input,
 ) -> int:
     """
-    Execute the review flow: missing metadata + recommendations.
+    Execute the review flow: missing move metadata + recommendations.
 
     Parameters
     ----------
     mode : Optional[str]
         Current mode context.
     limit : int
-        Max missing tasks to list.
+        Max missing moves to list.
     top : int
         Number of top candidates to show.
     strict_mode : bool
         Require mode match when True.
     include_dominated : bool
-        Include dominated tasks when True.
+        Include dominated moves when True.
     wizard : bool
-        Prompt for missing metadata when True.
+        Prompt for missing metadata when True, including blocked moves.
     wizard_once : bool
-        Only prompt for the first ready task when True.
+        Only prompt for the first move in scope when True.
+    filters : Optional[Sequence[str]]
+        Additional Taskwarrior filter tokens.
     input_func : Callable[[str], str], optional
         Input function for prompts (default: input).
 
@@ -696,53 +986,87 @@ def run_review(
         Exit code.
     """
     try:
-        pending = load_pending_tasks()
+        pending = load_pending_tasks(filters=filters)
     except RuntimeError as exc:
         print(f"twh: review failed: {exc}")
         return 1
 
     if not pending:
-        print("No pending tasks found.")
+        print("No pending moves found.")
         return 0
 
+    dominance_state, _dominance_tiers, dominance_missing = _build_dominance_context(
+        pending
+    )
     ready = ready_tasks(pending)
-    missing = collect_missing_metadata(pending, ready)
+    missing = collect_missing_metadata(
+        pending,
+        ready,
+        dominance_missing=dominance_missing,
+    )
 
     if not missing:
-        print("All pending tasks have imp/urg/opt/mode set.")
+        print("All pending moves have complete metadata and dominance ordering.")
     else:
-        print("\nTasks missing metadata (ready tasks first):")
+        print("\nMoves missing metadata or dominance ordering (ready moves first):")
         shown = 0
         for item in missing:
             if shown >= limit:
                 break
-            task = item.task
-            task_id = str(task.id) if task.id is not None else task.uuid[:8]
+            move = item.task
+            move_id = str(move.id) if move.id is not None else move.uuid[:8]
             missing_fields_str = ",".join(item.missing)
-            project = task.project or "-"
-            print(f"[{task_id}] {task.description}  project={project}  missing={missing_fields_str}")
+            project = move.project or "-"
+            print(
+                f"[{move_id}] {move.description}  project={project}  missing={missing_fields_str}"
+            )
             shown += 1
 
     updated = False
     if wizard and missing:
         for item in missing:
-            if not item.is_ready:
+            if all(field == "dominance" for field in item.missing):
                 continue
-            task = item.task
-            task_id = str(task.id) if task.id is not None else task.uuid[:8]
+            move = item.task
+            move_id = str(move.id) if move.id is not None else move.uuid[:8]
             print("\n---")
-            print(f"Task [{task_id}] {task.description}")
-            updates = interactive_fill_missing(task, input_func=input_func)
+            print(f"Move [{move_id}] {move.description}")
+            updates = interactive_fill_missing(move, input_func=input_func)
             if updates:
-                apply_updates(task.uuid, updates)
+                try:
+                    apply_updates(move.uuid, updates)
+                except RuntimeError as exc:
+                    print(f"twh: review failed: {exc}")
+                    return 1
                 updated = True
                 print("Updated.")
             if wizard_once:
                 break
 
+    if wizard and dominance_missing:
+        from . import dominance as dominance_module
+
+        tiers = dominance_module.sort_into_tiers(
+            pending,
+            dominance_state,
+            chooser=dominance_module.make_progress_chooser(
+                pending,
+                dominance_state,
+                input_func=input_func,
+            ),
+        )
+        updates = dominance_module.build_dominance_updates(tiers)
+        try:
+            dominance_module.apply_dominance_updates(updates)
+        except RuntimeError as exc:
+            print(f"twh: review failed: {exc}")
+            return 1
+        updated = True
+        print(f"Dominance updated for {len(pending)} moves.")
+
     if updated:
         try:
-            pending = load_pending_tasks()
+            pending = load_pending_tasks(filters=filters)
         except RuntimeError as exc:
             print(f"twh: review failed: {exc}")
             return 1
@@ -756,12 +1080,15 @@ def run_review(
     )
 
     if not report.candidates:
-        print("No ready tasks found (or all were filtered).")
+        print("No ready moves found (or all were filtered).")
         return 0
 
-    print("\nTop candidates:")
+    dominance_state, _tiers, _missing = _build_dominance_context(pending)
+
+    print("\nTop move candidates:")
     for candidate in report.candidates:
-        print(format_task_rationale(candidate.task, candidate.components))
+        for line in format_candidate_output(candidate, dominance_state):
+            print(line)
 
     best = report.candidates[0].task
     best_id = str(best.id) if best.id is not None else best.uuid[:8]
