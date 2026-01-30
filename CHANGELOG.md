@@ -1,3 +1,9 @@
+## 0.12.0 (2026-01-30)
+
+### Features
+
+- **options**: implement auto calculations of options values
+
 ## 0.11.0 (2026-01-30)
 
 ### Features
