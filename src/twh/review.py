@@ -7,10 +7,13 @@ from __future__ import annotations
 
 import math
 import subprocess
+import sys
+from datetime import datetime, timezone, tzinfo
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from .taskwarrior import (
+    filter_modified_zero_lines,
     missing_udas,
     parse_dependencies,
     read_tasks_from_json,
@@ -253,6 +256,96 @@ def parse_uuid_list(value: Any) -> List[str]:
     return []
 
 
+def get_local_timezone() -> tzinfo:
+    """
+    Return the local timezone for formatting timestamps.
+
+    Returns
+    -------
+    timezone
+        Local timezone, defaulting to UTC if unavailable.
+    """
+    tzinfo = datetime.now().astimezone().tzinfo
+    return tzinfo if tzinfo is not None else timezone.utc
+
+
+def parse_task_timestamp(value: Optional[str]) -> Optional[datetime]:
+    """
+    Parse a Taskwarrior timestamp string into a datetime.
+
+    Parameters
+    ----------
+    value : Optional[str]
+        Taskwarrior timestamp value.
+
+    Returns
+    -------
+    Optional[datetime]
+        Parsed datetime, or None when parsing fails.
+    """
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    formats = [
+        ("%Y%m%dT%H%M%SZ", True),
+        ("%Y%m%dT%H%M%S", False),
+        ("%Y-%m-%dT%H:%M:%SZ", True),
+        ("%Y-%m-%dT%H:%M:%S", False),
+        ("%Y-%m-%d %H:%M:%S", False),
+    ]
+    for fmt, is_utc in formats:
+        try:
+            parsed = datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+        if is_utc:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    return None
+
+
+def format_local_datetime(dt: datetime) -> str:
+    """
+    Format a datetime in local-friendly 12-hour notation.
+
+    Parameters
+    ----------
+    dt : datetime
+        Datetime to format.
+
+    Returns
+    -------
+    str
+        Formatted timestamp string.
+    """
+    hour = dt.strftime("%I").lstrip("0") or "12"
+    return f"{dt:%Y-%m-%d} {hour}:{dt:%M:%S} {dt:%p}"
+
+
+def format_task_timestamp(value: Optional[str]) -> str:
+    """
+    Format a Taskwarrior timestamp for review output.
+
+    Parameters
+    ----------
+    value : Optional[str]
+        Taskwarrior timestamp value.
+
+    Returns
+    -------
+    str
+        Formatted timestamp string, or the original value when parsing fails.
+    """
+    dt = parse_task_timestamp(value)
+    if not dt:
+        return str(value).strip() if value is not None else ""
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(get_local_timezone())
+    return format_local_datetime(dt)
+
+
 def parse_annotations(value: Any) -> List[str]:
     """
     Parse annotation payloads into human-readable strings.
@@ -283,7 +376,11 @@ def parse_annotations(value: Any) -> List[str]:
                 description = str(item.get("description", "")).strip()
                 entry = str(item.get("entry", "")).strip()
                 if description and entry:
-                    annotations.append(f"{entry}: {description}")
+                    formatted_entry = format_task_timestamp(entry)
+                    if formatted_entry:
+                        annotations.append(f"{formatted_entry}: {description}")
+                    else:
+                        annotations.append(description)
                 elif description:
                     annotations.append(description)
                 else:
@@ -853,7 +950,7 @@ def interactive_fill_missing(
             updates["urg"] = value
     if task.opt is None:
         value = input_func(
-            "  Option value - to what extent does this move preserve or expand future options? (0-10): "
+            "  Option value - to what extent does doing this move preserve, unlock, or multiply future moves? (0-10): "
         ).strip()
         if value:
             updates["opt"] = value
@@ -906,7 +1003,11 @@ def apply_updates(
             f"{missing_list}. Aborting to avoid modifying move descriptions."
         )
     parts = [f"{key}:{value}" for key, value in updates.items()]
-    run_task_command([uuid, "modify", *parts])
+    result = run_task_command([uuid, "modify", *parts], capture_output=True)
+    for line in filter_modified_zero_lines(result.stdout):
+        print(line)
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
 
 
 def load_pending_tasks(filters: Optional[Sequence[str]] = None) -> List[ReviewTask]:

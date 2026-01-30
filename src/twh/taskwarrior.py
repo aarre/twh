@@ -69,6 +69,37 @@ def parse_dependencies(dep_field: Optional[str]) -> List[str]:
     return [item.strip() for item in str(dep_field).split(",") if item.strip()]
 
 
+def filter_modified_zero_lines(stdout: Optional[str]) -> List[str]:
+    """
+    Filter "Modified 0 tasks." lines from Taskwarrior output.
+
+    Parameters
+    ----------
+    stdout : Optional[str]
+        Raw stdout from Taskwarrior.
+
+    Returns
+    -------
+    List[str]
+        Filtered stdout lines.
+
+    Examples
+    --------
+    >>> filter_modified_zero_lines("Modified 0 tasks.\\n")
+    []
+    >>> filter_modified_zero_lines("Modified 1 task.\\n")
+    ['Modified 1 task.']
+    """
+    if not stdout:
+        return []
+    lines = []
+    for line in stdout.splitlines():
+        if line.strip() == "Modified 0 tasks.":
+            continue
+        lines.append(line)
+    return lines
+
+
 def get_taskwarrior_setting(key: str) -> Optional[str]:
     """
     Fetch a Taskwarrior configuration value.

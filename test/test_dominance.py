@@ -276,9 +276,42 @@ def test_apply_dominance_updates_writes_fields(monkeypatch):
     )
 
     assert calls == [
-        (["a", "modify", "dominates:b", "dominated_by:"], False),
-        (["b", "modify", "dominates:", "dominated_by:a"], False),
+        (["a", "modify", "dominates:b", "dominated_by:"], True),
+        (["b", "modify", "dominates:", "dominated_by:a"], True),
     ]
+
+
+@pytest.mark.unit
+def test_apply_dominance_updates_suppresses_modified_zero(monkeypatch, capsys):
+    """
+    Ensure "Modified 0 tasks." output is suppressed.
+
+    Returns
+    -------
+    None
+        This test asserts output filtering.
+    """
+    updates = {
+        "a": dominance.DominanceUpdate(dominates=["b"], dominated_by=[]),
+    }
+
+    def fake_runner(args, capture_output=False, **_kwargs):
+        assert capture_output is True
+        return dominance.subprocess.CompletedProcess(
+            args,
+            0,
+            stdout="Modified 0 tasks.\n",
+            stderr="",
+        )
+
+    dominance.apply_dominance_updates(
+        updates,
+        runner=fake_runner,
+        get_setting=lambda _key: "string",
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
 
 
 @pytest.mark.unit

@@ -149,7 +149,7 @@ def test_apply_context_to_add_args(
     [
         ([], True),
         (["project:work"], True),
-        (["add", "Next task"], True),
+        (["add", "Next task"], False),
         (["list"], False),
         (["reverse"], False),
         (["tree"], False),
@@ -185,7 +185,6 @@ def test_should_delegate_to_task(argv, expected):
     [
         (["twh"], []),
         (["twh", "project:work"], ["project:work"]),
-        (["twh", "add", "Next task"], ["add", "Next task"]),
         (["twh", "21", "modify", "project:personal", "depends:20"],
          ["21", "modify", "project:personal", "depends:20"]),
     ],
@@ -227,53 +226,38 @@ def test_main_delegates_to_task(monkeypatch, argv, expected_args):
 
 
 @pytest.mark.unit
-def test_main_applies_context_to_add(monkeypatch, capsys):
+def test_main_routes_add_to_interactive(monkeypatch):
     """
-    Confirm twh add applies project context before delegating.
+    Confirm twh add uses the interactive flow.
 
     Parameters
     ----------
     monkeypatch : pytest.MonkeyPatch
-        Fixture for patching subprocess and context lookups.
-    capsys : pytest.CaptureFixture[str]
-        Fixture to capture stdout and stderr.
+        Fixture for patching subprocess and argv.
 
     Returns
     -------
     None
-        This test asserts on context-aware add behavior.
+        This test asserts interactive add routing.
     """
     calls = []
 
-    def fake_exec(args):
+    def fake_run_interactive_add(args, **_kwargs):
         calls.append(args)
         return 0
 
-    monkeypatch.setattr(twh, "get_active_context_name", lambda: "grin")
-    monkeypatch.setattr(
-        twh,
-        "get_context_definition",
-        lambda name: "project:work.competitiveness.gloria.grinsector",
-    )
-    monkeypatch.setattr(twh, "exec_task_command", fake_exec)
+    def unexpected_exec(_args):
+        raise AssertionError("Delegation should not occur for interactive add.")
+
+    monkeypatch.setattr(twh, "run_interactive_add", fake_run_interactive_add)
+    monkeypatch.setattr(twh, "exec_task_command", unexpected_exec)
     monkeypatch.setattr(sys, "argv", ["twh", "add", "Implement feedback"])
 
     with pytest.raises(SystemExit) as excinfo:
         twh.main()
 
     assert excinfo.value.code == 0
-    assert calls == [
-        [
-            "add",
-            "Implement feedback",
-            "project:work.competitiveness.gloria.grinsector",
-        ]
-    ]
-    captured = capsys.readouterr()
-    assert (
-        "twh: project set to work.competitiveness.gloria.grinsector because context is grin"
-        in captured.out
-    )
+    assert calls == [["Implement feedback"]]
 
 
 @pytest.mark.parametrize(

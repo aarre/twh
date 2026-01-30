@@ -10,6 +10,25 @@ import twh.taskwarrior as taskwarrior
 
 
 @pytest.mark.unit
+def test_filter_modified_zero_lines():
+    """
+    Ensure "Modified 0 tasks." output lines are suppressed.
+
+    Returns
+    -------
+    None
+        This test asserts output filtering.
+    """
+    assert taskwarrior.filter_modified_zero_lines("Modified 0 tasks.\n") == []
+    assert taskwarrior.filter_modified_zero_lines("Modified 1 task.\n") == [
+        "Modified 1 task."
+    ]
+    assert taskwarrior.filter_modified_zero_lines(
+        "Warning: nope\nModified 0 tasks.\nExtra"
+    ) == ["Warning: nope", "Extra"]
+
+
+@pytest.mark.unit
 def test_missing_udas_falls_back_to_taskrc(tmp_path, monkeypatch):
     """
     Ensure UDA detection uses taskrc when task _get fails.

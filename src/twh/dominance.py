@@ -6,12 +6,13 @@ Collect dominance ordering for moves with minimal comparisons.
 from __future__ import annotations
 
 import subprocess
+import sys
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .review import ReviewTask, load_pending_tasks
-from .taskwarrior import missing_udas
+from .taskwarrior import filter_modified_zero_lines, missing_udas
 
 
 class DominanceChoice(IntEnum):
@@ -469,15 +470,21 @@ def apply_dominance_updates(
     for uuid, update in updates.items():
         dominates_value = ",".join(update.dominates)
         dominated_by_value = ",".join(update.dominated_by)
-        runner(
+        result = runner(
             [
                 uuid,
                 "modify",
                 f"dominates:{dominates_value}",
                 f"dominated_by:{dominated_by_value}",
             ],
+            capture_output=True,
+            text=True,
             check=False,
         )
+        for line in filter_modified_zero_lines(result.stdout):
+            print(line)
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
 
 
 def build_tiers_from_state(

@@ -9,6 +9,7 @@ import html
 import shutil
 import subprocess
 import sys
+import textwrap
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +35,8 @@ URGENCY_PALETTE = [
 ]
 DEFAULT_URGENCY_COLOR = "#cfe9f2"
 URGENCY_OPACITY = 0.35
+BOX_WIDTH_PX = 320
+DESCRIPTION_WRAP_WIDTH = 42
 
 
 def short_uuid(value: str, length: int = 8) -> str:
@@ -382,6 +385,40 @@ def truncate_text(value: str, max_length: int) -> str:
     return value[: max_length - 3] + "..."
 
 
+def wrap_text(value: str, width: int) -> List[str]:
+    """
+    Wrap text to a fixed character width.
+
+    Parameters
+    ----------
+    value : str
+        Text to wrap.
+    width : int
+        Maximum characters per line.
+
+    Returns
+    -------
+    List[str]
+        Wrapped lines.
+
+    Examples
+    --------
+    >>> wrap_text("alpha beta gamma", 10)
+    ['alpha beta', 'gamma']
+    """
+    if width <= 0:
+        return [value] if value else []
+    normalized = " ".join(value.split())
+    if not normalized:
+        return []
+    return textwrap.wrap(
+        normalized,
+        width=width,
+        break_long_words=True,
+        break_on_hyphens=False,
+    )
+
+
 def sanitize_html(value: str) -> str:
     """
     Escape text for Graphviz HTML labels.
@@ -420,7 +457,7 @@ def build_html_label(
     status_color : str
         Hex color for the status panel.
     max_length : int
-        Maximum description length.
+        Maximum description line length.
 
     Returns
     -------
@@ -428,7 +465,10 @@ def build_html_label(
         HTML label string.
     """
     description = str(task.get("description", "")).strip() or uuid
-    description = sanitize_html(truncate_text(description, max_length))
+    wrapped_lines = wrap_text(description, max_length)
+    if not wrapped_lines:
+        wrapped_lines = [uuid]
+    description = "<BR/>".join(sanitize_html(line) for line in wrapped_lines)
     task_id = task.get("id")
     id_text = f"ID: {task_id}" if task_id is not None else "ID: ?"
     id_text = sanitize_html(id_text)
@@ -440,10 +480,13 @@ def build_html_label(
     if due_text:
         meta_lines += f'<BR/><FONT POINT-SIZE="9">{due_text}</FONT>'
 
+    table_width = f'{BOX_WIDTH_PX}'
+    cell_width = f' WIDTH="{BOX_WIDTH_PX}"'
+
     return (
-        '<TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4">'
-        f'<TR><TD BGCOLOR="{urgency_color}" ALIGN="LEFT"><B>{urgency_text}</B></TD></TR>'
-        f'<TR><TD BGCOLOR="{status_color}" ALIGN="LEFT">{description}<BR/>{meta_lines}</TD></TR>'
+        f'<TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" WIDTH="{table_width}">'
+        f'<TR><TD BGCOLOR="{urgency_color}" ALIGN="LEFT"{cell_width}><B>{urgency_text}</B></TD></TR>'
+        f'<TR><TD BGCOLOR="{status_color}" ALIGN="LEFT"{cell_width}>{description}<BR/>{meta_lines}</TD></TR>'
         "</TABLE>"
     )
 
@@ -616,7 +659,7 @@ def generate_dot(
     by_uuid: Dict[str, Dict],
     edges: List[Tuple[str, str]],
     rankdir: str = "LR",
-    max_label_length: int = 80,
+    max_label_length: int = DESCRIPTION_WRAP_WIDTH,
 ) -> str:
     """
     Generate DOT source for Graphviz.

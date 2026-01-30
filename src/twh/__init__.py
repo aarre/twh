@@ -11,12 +11,15 @@ import tempfile
 import subprocess
 import sys
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Set, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .taskwarrior import (
+    filter_modified_zero_lines,
     get_tasks_from_taskwarrior,
+    missing_udas,
     parse_dependencies,
     read_tasks_from_json,
 )
@@ -301,6 +304,373 @@ def apply_context_to_add_args(argv: List[str]) -> Tuple[List[str], Optional[str]
     updated_args = insert_additions_before_double_dash(argv, additions)
     message = format_context_message(context_name, added_project, added_tags)
     return updated_args, message
+
+
+@dataclass(frozen=True)
+class AddMoveInput:
+    """
+    Interactive add inputs for a new move.
+
+    Attributes
+    ----------
+    description : str
+        Move description.
+    project : Optional[str]
+        Project name, if provided.
+    tags : List[str]
+        Tags to apply to the move.
+    due : Optional[str]
+        Due date string.
+    blocks : List[str]
+        Move IDs blocked by this move.
+    metadata : Dict[str, str]
+        Metadata fields keyed by UDA name.
+    """
+
+    description: str
+    project: Optional[str]
+    tags: List[str]
+    due: Optional[str]
+    blocks: List[str]
+    metadata: Dict[str, str]
+
+
+def normalize_description_default(args: Sequence[str]) -> Optional[str]:
+    """
+    Collapse add arguments into a default description.
+
+    Parameters
+    ----------
+    args : Sequence[str]
+        Extra tokens provided after ``add``.
+
+    Returns
+    -------
+    Optional[str]
+        Joined description default, or None when empty.
+
+    Examples
+    --------
+    >>> normalize_description_default(["Write", "notes"])
+    'Write notes'
+    >>> normalize_description_default([]) is None
+    True
+    >>> normalize_description_default([" "]) is None
+    True
+    """
+    joined = " ".join(str(arg).strip() for arg in args).strip()
+    return joined or None
+
+
+def parse_tag_input(value: Optional[str]) -> List[str]:
+    """
+    Parse comma-separated tag input into unique tag names.
+
+    Parameters
+    ----------
+    value : Optional[str]
+        Raw tag input.
+
+    Returns
+    -------
+    List[str]
+        Parsed tag names.
+
+    Examples
+    --------
+    >>> parse_tag_input("alpha, +beta, alpha")
+    ['alpha', 'beta']
+    >>> parse_tag_input("") == []
+    True
+    """
+    tags: List[str] = []
+    seen = set()
+    for raw in split_csv(value):
+        tag = raw.strip()
+        if tag.startswith("+"):
+            tag = tag[1:]
+        if not tag or tag in seen:
+            continue
+        tags.append(tag)
+        seen.add(tag)
+    return tags
+
+
+def parse_blocks_input(value: Optional[str]) -> List[str]:
+    """
+    Parse comma-separated block IDs into a unique list.
+
+    Parameters
+    ----------
+    value : Optional[str]
+        Raw blocks input.
+
+    Returns
+    -------
+    List[str]
+        Parsed block IDs.
+
+    Examples
+    --------
+    >>> parse_blocks_input("12, 34, 12")
+    ['12', '34']
+    >>> parse_blocks_input(None)
+    []
+    """
+    blocks: List[str] = []
+    seen = set()
+    for raw in split_csv(value):
+        block = raw.strip()
+        if not block or block in seen:
+            continue
+        blocks.append(block)
+        seen.add(block)
+    return blocks
+
+
+def prompt_add_metadata(input_func: Callable[[str], str] = input) -> Dict[str, str]:
+    """
+    Prompt for add metadata fields using the review wizard prompts.
+
+    Parameters
+    ----------
+    input_func : Callable[[str], str], optional
+        Input function for prompts (default: input).
+
+    Returns
+    -------
+    Dict[str, str]
+        Metadata updates keyed by UDA name.
+    """
+    from .review import ReviewTask, interactive_fill_missing
+
+    placeholder = ReviewTask(
+        uuid="new",
+        id=None,
+        description="",
+        project=None,
+        depends=[],
+        imp=None,
+        urg=None,
+        opt=None,
+        diff=None,
+        mode=None,
+        raw={},
+    )
+    return interactive_fill_missing(placeholder, input_func=input_func)
+
+
+def prompt_add_input(
+    input_func: Callable[[str], str] = input,
+    description_default: Optional[str] = None,
+) -> AddMoveInput:
+    """
+    Prompt the user for new move details in the required order.
+
+    Parameters
+    ----------
+    input_func : Callable[[str], str], optional
+        Input function for prompts (default: input).
+    description_default : Optional[str], optional
+        Default description to offer (default: None).
+
+    Returns
+    -------
+    AddMoveInput
+        Collected add input data.
+    """
+    while True:
+        if description_default:
+            prompt = f"Move description [{description_default}]: "
+        else:
+            prompt = "Move description: "
+        description = input_func(prompt).strip()
+        if description:
+            break
+        if description_default:
+            description = description_default
+            break
+        print("Move description is required.")
+
+    project_value = input_func("Project: ").strip()
+    project = project_value if project_value else None
+
+    tags = parse_tag_input(input_func("Tags (comma-separated): ").strip())
+
+    due_value = input_func("Due date: ").strip()
+    due = due_value if due_value else None
+
+    blocks = parse_blocks_input(
+        input_func("Blocks (move IDs blocked by this move, comma-separated): ").strip()
+    )
+
+    metadata = prompt_add_metadata(input_func=input_func)
+
+    return AddMoveInput(
+        description=description,
+        project=project,
+        tags=tags,
+        due=due,
+        blocks=blocks,
+        metadata=metadata,
+    )
+
+
+def build_add_args(add_input: AddMoveInput) -> List[str]:
+    """
+    Build Taskwarrior add arguments from interactive inputs.
+
+    Parameters
+    ----------
+    add_input : AddMoveInput
+        Collected add inputs.
+
+    Returns
+    -------
+    List[str]
+        Taskwarrior arguments for ``task add``.
+
+    Examples
+    --------
+    >>> add_input = AddMoveInput(
+    ...     description="Write notes",
+    ...     project="work",
+    ...     tags=["alpha"],
+    ...     due="2024-02-01",
+    ...     blocks=[],
+    ...     metadata={"imp": "10", "mode": "analysis"},
+    ... )
+    >>> build_add_args(add_input)
+    ['add', 'Write notes', 'project:work', '+alpha', 'due:2024-02-01', 'imp:10', 'mode:analysis']
+    """
+    args = ["add", add_input.description]
+    if add_input.project:
+        args.append(f"project:{add_input.project}")
+    for tag in add_input.tags:
+        args.append(f"+{tag}")
+    if add_input.due:
+        args.append(f"due:{add_input.due}")
+    for field in ("imp", "urg", "opt", "diff", "mode"):
+        value = add_input.metadata.get(field)
+        if value:
+            args.append(f"{field}:{value}")
+    return args
+
+
+def apply_blocks_to_targets(
+    created_id: str,
+    blocks: Iterable[str],
+    runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
+) -> int:
+    """
+    Apply dependency updates for blocks targets.
+
+    Parameters
+    ----------
+    created_id : str
+        Newly created move ID.
+    blocks : Iterable[str]
+        IDs of blocked moves.
+    runner : Callable[..., subprocess.CompletedProcess], optional
+        Runner for Taskwarrior commands (default: run_task_command).
+
+    Returns
+    -------
+    int
+        Exit code from the blocks updates.
+    """
+    if runner is None:
+        runner = run_task_command
+
+    exit_code = 0
+    for target in blocks:
+        result = runner(
+            [target, "modify", f"depends:+{created_id}"],
+            capture_output=True,
+        )
+        for line in filter_modified_zero_lines(result.stdout):
+            print(line)
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        if result.returncode != 0:
+            exit_code = result.returncode
+    return exit_code
+
+
+def run_interactive_add(
+    argv: Sequence[str],
+    input_func: Callable[[str], str] = input,
+) -> int:
+    """
+    Run the interactive ``twh add`` workflow.
+
+    Parameters
+    ----------
+    argv : Sequence[str]
+        Extra command-line arguments after ``add``.
+    input_func : Callable[[str], str], optional
+        Input function for prompts (default: input).
+
+    Returns
+    -------
+    int
+        Exit code for the add workflow.
+    """
+    description_default = normalize_description_default(argv)
+    add_input = prompt_add_input(
+        input_func=input_func,
+        description_default=description_default,
+    )
+    add_args = build_add_args(add_input)
+    add_args, message = apply_context_to_add_args(add_args)
+    if message:
+        print(message)
+        sys.stdout.flush()
+
+    if add_input.metadata:
+        missing = missing_udas(add_input.metadata.keys())
+        if missing:
+            missing_list = ", ".join(missing)
+            print(
+                "twh: add failed: Missing Taskwarrior UDA(s): "
+                f"{missing_list}. Aborting to avoid modifying move descriptions.",
+                file=sys.stderr,
+            )
+            return 1
+
+    add_result = run_task_command(add_args, capture_output=True)
+    if add_result.stdout:
+        print(add_result.stdout, end="")
+    if add_result.stderr:
+        print(add_result.stderr, end="", file=sys.stderr)
+    if add_result.returncode != 0:
+        return add_result.returncode
+
+    created_id = parse_created_task_id(add_result.stdout or "")
+
+    exit_code = 0
+    if add_input.blocks:
+        if not created_id:
+            print("twh: unable to parse created move id for blocks.", file=sys.stderr)
+            return 1
+        exit_code = apply_blocks_to_targets(created_id, add_input.blocks)
+
+    missing_dominance = missing_udas(["dominates", "dominated_by"])
+    if missing_dominance:
+        missing_list = ", ".join(missing_dominance)
+        print(
+            "twh: add failed: Missing Taskwarrior UDA(s): "
+            f"{missing_list}. Aborting to avoid modifying move descriptions.",
+            file=sys.stderr,
+        )
+        return exit_code or 1
+
+    from . import dominance as dominance_module
+
+    dominance_exit = dominance_module.run_dominance(input_func=input_func)
+    if exit_code == 0:
+        exit_code = dominance_exit
+    return exit_code
 
 
 def parse_default_command(command: Optional[str]) -> str:
@@ -943,7 +1313,7 @@ def apply_blocks_relationship(
 
         created_id = parse_created_task_id(add_result.stdout or "")
         if not created_id:
-            print("twh: unable to parse created task id for blocks.", file=sys.stderr)
+            print("twh: unable to parse created move id for blocks.", file=sys.stderr)
             return 1
 
         exit_code = add_result.returncode
@@ -1930,6 +2300,8 @@ def should_delegate_to_task(argv: List[str]) -> bool:
     True
     >>> should_delegate_to_task(["project:work"])
     True
+    >>> should_delegate_to_task(["add", "Next move"])
+    False
     >>> should_delegate_to_task(["list"])
     False
     >>> should_delegate_to_task(["--help"])
@@ -1938,6 +2310,8 @@ def should_delegate_to_task(argv: List[str]) -> bool:
     if not argv:
         return True
     first_arg = argv[0]
+    if first_arg == "add":
+        return False
     return first_arg not in TWH_COMMANDS and first_arg not in TWH_HELP_ARGS
 
 
@@ -1965,6 +2339,20 @@ def main():
     If the command is not recognized, delegate to Taskwarrior.
     """
     argv = sys.argv[1:]
+    if argv and argv[0] == "add":
+        if has_help_args(argv):
+            try:
+                exit_code = apply_blocks_relationship(argv, exec_task=exec_task_command)
+            except FileNotFoundError:
+                print("Error: `task` command not found.", file=sys.stderr)
+                sys.exit(1)
+            sys.exit(exit_code)
+        try:
+            exit_code = run_interactive_add(argv[1:])
+        except FileNotFoundError:
+            print("Error: `task` command not found.", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(exit_code)
     if should_delegate_to_task(argv):
         argv, message = apply_context_to_add_args(argv)
         if message:

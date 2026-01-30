@@ -3,6 +3,7 @@ Tests for the review command logic.
 """
 
 import doctest
+from datetime import timezone
 
 import pytest
 
@@ -129,6 +130,25 @@ def test_review_task_from_json_parses_fields(
     assert task.mode == expected_mode
     assert task.annotations == expected_annotations
     assert task.description == payload["description"].strip()
+
+
+@pytest.mark.unit
+def test_parse_annotations_formats_entry_time(monkeypatch):
+    """
+    Ensure annotation entries are formatted as local-readable date-times.
+
+    Returns
+    -------
+    None
+        This test asserts annotation formatting.
+    """
+    monkeypatch.setattr(review, "get_local_timezone", lambda: timezone.utc)
+
+    annotations = review.parse_annotations(
+        [{"entry": "20260127T180425Z", "description": "Note"}]
+    )
+
+    assert annotations == ["2026-01-27 6:04:25 PM: Note"]
 
 
 @pytest.mark.unit
@@ -729,8 +749,39 @@ def test_apply_updates_uses_modify(monkeypatch):
     )
 
     assert calls == [
-        (["uuid-1", "modify", "imp:3", "urg:5"], False),
+        (["uuid-1", "modify", "imp:3", "urg:5"], True),
     ]
+
+
+@pytest.mark.unit
+def test_apply_updates_suppresses_modified_zero(monkeypatch, capsys):
+    """
+    Ensure "Modified 0 tasks." output is suppressed.
+
+    Returns
+    -------
+    None
+        This test asserts output filtering.
+    """
+    def fake_runner(args, capture_output=False, **_kwargs):
+        assert capture_output is True
+        return review.subprocess.CompletedProcess(
+            args,
+            0,
+            stdout="Modified 0 tasks.\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(review, "run_task_command", fake_runner)
+
+    review.apply_updates(
+        "uuid-1",
+        {"imp": "3"},
+        get_setting=lambda _key: "numeric",
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
 
 
 @pytest.mark.unit

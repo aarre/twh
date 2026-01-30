@@ -115,6 +115,54 @@ def test_ascii_forest_outputs(tasks, expected_lines):
     assert lines == expected_lines
 
 
+@pytest.mark.unit
+def test_wrap_text_respects_width():
+    """
+    Ensure wrapped text fits within the requested width.
+
+    Returns
+    -------
+    None
+        This test asserts text wrapping.
+    """
+    text = "Alpha beta gamma delta epsilon"
+    lines = graph.wrap_text(text, 10)
+
+    assert lines
+    assert all(len(line) <= 10 for line in lines)
+    assert " ".join(lines) == "Alpha beta gamma delta epsilon"
+
+
+@pytest.mark.unit
+def test_build_html_label_wraps_and_sets_width():
+    """
+    Ensure HTML labels wrap descriptions and set a fixed width.
+
+    Returns
+    -------
+    None
+        This test asserts label formatting.
+    """
+    task = {
+        "uuid": "a",
+        "id": 1,
+        "description": "One two three four five six seven eight nine ten",
+    }
+    label = graph.build_html_label(
+        task,
+        "a",
+        urgency_color="#ffffff",
+        status_color="#ffffff",
+        max_length=10,
+    )
+    lines = graph.wrap_text(task["description"], 10)
+    expected_desc = "<BR/>".join(graph.sanitize_html(line) for line in lines)
+
+    assert f'WIDTH="{graph.BOX_WIDTH_PX}"' in label
+    assert expected_desc in label
+    assert label.count("<BR/>") >= 2
+
+
 @pytest.mark.parametrize(
     ("edges", "expected_substrings"),
     [

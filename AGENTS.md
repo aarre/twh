@@ -35,15 +35,19 @@ Already implemented, among other requirements:
 * `twh dominance` collects dominance ordering with pairwise prompts (transitive, dependency-implied dominance) and writes `dominates`/`dominated_by` UDAs; `twh review --wizard` includes this dominance stage for moves in scope.
 * `twh review` tracks `diff` (difficulty hours) alongside `imp`/`urg`/`opt`/`mode`, treats missing dominance/diff as incomplete metadata, and ranks moves by dominance tier before scoring ties.
 * `twh review --wizard` prompts for missing metadata on all moves in scope (including blocked) so a single run can collect everything.
+* `twh review` formats annotation timestamps into a local, human-readable date-time string (US Eastern).
+* Suppress Taskwarrior noise like `Modified 0 tasks.` in `twh` outputs.
+* `twh graph` uses fixed-width Graphviz boxes and wraps move descriptions across lines.
 * Dominance prompts use A/B/C choices with labels like `[A] Move ID 3: ...` to avoid numeric confusion with move IDs.
 * Dominance should never prompt for move pairs already related by dependencies (including when dependencies are stored as IDs), and prompts should show approximate progress (comparisons complete/remaining).
 * `twh review` outputs a top-move list that includes move descriptions, annotations, and a short list of first-order dominance relations.
 * Before any operation that could modify move descriptions (including writing UDAs that might be misconfigured), halt and ask for guidance. If a required UDA is missing and its absence could overwrite descriptions, stop and ask for guidance before proceeding.
+* `twh add` is an interactive flow that prompts for description, project, tags, due date, blocks, and metadata (imp/urg/opt/diff/mode), then runs dominance sorting.
 
 ## Project notes
 
 - `twh` delegates unknown commands (including no-arg invocation) to Taskwarrior; `list`, `reverse`, `tree`, `graph`, `simple`, `review`, and `dominance` are handled internally.
-- `twh add` augments new moves with the active Taskwarrior context's `project:` or tag filters (from `context.<name>`), without overriding explicit `project:` or `+tag` arguments, and inserts additions before `--` when present.
+- `twh add` uses an interactive prompt sequence and still augments new moves with the active Taskwarrior context's `project:` or tag filters (from `context.<name>`), without overriding explicit `project:` or `+tag` inputs.
 - Running tests directly from the repo root needs `PYTHONPATH=src` (or an editable install) so `import twh` resolves the package.
 - Prefer Python 3.12 for local virtual environments; `uv venv` defaults to newer Python versions (for example 3.14) and may create a venv without pip, so use `python3.12 -m venv .venv` or `uv venv --python=python3.12`, and if pip is missing run `python -m ensurepip --upgrade`.
 - If you recreate the venv with `uv venv`, the `uv` CLI installed in the previous venv is removed; reinstall it in the new venv (or use `python -m pip install -e .` directly).

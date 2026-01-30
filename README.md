@@ -15,21 +15,24 @@ twh graph reverse
 twh refers to Taskwarrior tasks as moves in its output and documentation.
 
 Commands that `twh` doesn't recognize are forwarded to Taskwarrior, so `twh`
-behaves like `task` and `twh add "Next move"` runs `task add "Next move"`.
-Delegated commands replace the `twh` process with `task` to keep overhead low.
+behaves like `task` for most subcommands and delegated commands replace the
+`twh` process with `task` to keep overhead low.
+`twh add` is interactive: it prompts for the move description, project, tags,
+due date, blocks, and review metadata (imp/urg/opt/diff/mode), then runs the
+dominance sorting step. Use `task add` for non-interactive adds.
 When a Taskwarrior context is active and its definition includes `project:` or
-tag filters, `twh add` automatically applies those values to new moves. For
-example, after `twh context define grin project:work.competitiveness.gloria.grinsector`
-and `twh context grin`, running `twh add "Implement feedback"` appends
-`project:work.competitiveness.gloria.grinsector` and prints an informational
-message. This context-driven behavior
+tag filters, `twh add` automatically applies those values to new moves unless
+you supply them yourself, and prints an informational message. For example,
+after `twh context define grin project:work.competitiveness.gloria.grinsector`
+and `twh context grin`, running `twh add` and leaving the project blank applies
+`project:work.competitiveness.gloria.grinsector`.
+This context-driven behavior
 persists until `twh context none` clears the context.
 
-`twh` also supports a synthetic `blocks` field on delegated `add` and `modify`
-commands. `twh add "New move" blocks:32` creates the new move and then updates
-move 32 with `depends:+<new-id>`. `twh 31 modify blocks 32` makes move 32 depend
-on move 31. The relationship is stored in Taskwarrior's `depends` field; no UDAs
-are required.
+`twh` also supports a synthetic `blocks` field on `modify`, and `twh add`
+prompts for blocked move IDs. The relationship is stored in Taskwarrior's
+`depends` field; no UDAs are required. For example, `twh 31 modify blocks 32`
+makes move 32 depend on move 31.
 
 `twh simple` wraps Taskwarrior reports and shows annotation counts instead of
 inline annotation text. On first run it creates `report.simple` by copying the
@@ -80,7 +83,8 @@ and opens it by default (requires Graphviz `dot`). On WSL, the SVG opens in
 Windows Edge by default, copying the file into the Windows TEMP directory when
 needed. Node labels include an
 urgency bar with rank-based colors plus a status panel that lists ID,
-description, due date, and status coloring (started/blocked/normal). It falls
+description (wrapped in fixed-width boxes), due date, and status coloring
+(started/blocked/normal). It falls
 back to an ASCII tree when Graphviz is unavailable or when `--ascii` is set.
 Use `--png` or `--svg` to customize output paths, `--rankdir` to change layout
 direction, and `--edges` to print the raw edge list.
