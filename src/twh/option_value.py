@@ -20,6 +20,7 @@ from .taskwarrior import (
     parse_dependencies,
     read_tasks_from_json,
 )
+from . import calibration
 
 INFO_TAGS = {"probe", "explore", "call", "prototype", "test"}
 ONEWAY_TAGS = {"oneway"}
@@ -267,6 +268,66 @@ class Weights:
     w_rev: float = 1.0
     w_cost: float = 0.6
     bias: float = 1.0
+
+
+def weights_to_mapping(weights: Weights) -> Dict[str, float]:
+    """
+    Convert option value weights into a mapping.
+
+    Parameters
+    ----------
+    weights : Weights
+        Option value weights.
+
+    Returns
+    -------
+    Dict[str, float]
+        Mapping keyed by weight name.
+    """
+    return {
+        "bias": weights.bias,
+        "w_children": weights.w_children,
+        "w_desc": weights.w_desc,
+        "w_desc_value": weights.w_desc_value,
+        "w_diversity": weights.w_diversity,
+        "w_info": weights.w_info,
+        "w_rev": weights.w_rev,
+        "w_cost": weights.w_cost,
+    }
+
+
+def weights_from_mapping(mapping: Dict[str, float], default: Optional[Weights] = None) -> Weights:
+    """
+    Build option value weights from a mapping.
+
+    Parameters
+    ----------
+    mapping : Dict[str, float]
+        Mapping with weight values.
+    default : Optional[Weights], optional
+        Default weights to use for missing keys.
+
+    Returns
+    -------
+    Weights
+        Option value weights.
+
+    Examples
+    --------
+    >>> weights_from_mapping({"bias": 2.0}).bias
+    2.0
+    """
+    base = default or Weights()
+    return Weights(
+        bias=float(mapping.get("bias", base.bias)),
+        w_children=float(mapping.get("w_children", base.w_children)),
+        w_desc=float(mapping.get("w_desc", base.w_desc)),
+        w_desc_value=float(mapping.get("w_desc_value", base.w_desc_value)),
+        w_diversity=float(mapping.get("w_diversity", base.w_diversity)),
+        w_info=float(mapping.get("w_info", base.w_info)),
+        w_rev=float(mapping.get("w_rev", base.w_rev)),
+        w_cost=float(mapping.get("w_cost", base.w_cost)),
+    )
 
 
 def now_local() -> datetime:
@@ -978,14 +1039,18 @@ def run_option_value(
         manual = manual_option_value(task)
         if manual is not None:
             training.append((task.uuid, manual))
-    weights = fit_weights_ridge(training, task_map, lam=ridge)
-
-    if training:
-        print(f"Option value calibrated from {len(training)} move(s).")
+    calibration_data = calibration.load_calibration()
+    if calibration_data and calibration_data.option_value:
+        weights = weights_from_mapping(calibration_data.option_value.weights)
+        print("Option value using calibrated weights from twh calibrate.")
     else:
-        print(
-            "Option value using default weights (no manual opt_human ratings found on moves)."
-        )
+        weights = fit_weights_ridge(training, task_map, lam=ridge)
+        if training:
+            print(f"Option value calibrated from {len(training)} move(s).")
+        else:
+            print(
+                "Option value using default weights (no manual opt_human ratings found on moves)."
+            )
     print(f"Weights: {format_weights(weights)}")
 
     predictions = predict_option_values(task_map, weights=weights)

@@ -2461,10 +2461,62 @@ def build_app():
             raise typer.Exit(code=1)
         raise typer.Exit(code=exit_code)
 
+    @app.command(
+        "calibrate",
+        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    )
+    def calibrate_cmd(
+        ctx: typer.Context,
+        pairs: int = typer.Option(
+            10,
+            "--pairs",
+            help="Number of pairwise precedence comparisons to prompt.",
+        ),
+        alpha: float = typer.Option(
+            0.15,
+            "--alpha",
+            help="Learning rate for precedence calibration.",
+        ),
+        ridge: float = typer.Option(
+            1.0,
+            "--ridge",
+            help="Ridge regularization strength for option value calibration.",
+        ),
+        apply: bool = typer.Option(
+            True,
+            "--apply/--no-apply",
+            help="Apply opt_auto values after calibration.",
+        ),
+    ):
+        from . import calibrate as calibrate_module
+
+        try:
+            exit_code = calibrate_module.run_calibrate(
+                pairs=pairs,
+                alpha=alpha,
+                ridge=ridge,
+                apply=apply,
+                filters=list(ctx.args),
+            )
+        except FileNotFoundError:
+            print("Error: `task` command not found.", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
     return app
 
 
-TWH_COMMANDS = {"list", "reverse", "tree", "graph", "simple", "review", "option", "dominance"}
+TWH_COMMANDS = {
+    "list",
+    "reverse",
+    "tree",
+    "graph",
+    "simple",
+    "review",
+    "option",
+    "dominance",
+    "calibrate",
+}
 TWH_HELP_ARGS = {"-h", "--help", "--install-completion", "--show-completion"}
 
 

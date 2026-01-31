@@ -9,6 +9,7 @@ twh simple
 twh dominance
 twh review
 twh option
+twh calibrate
 twh graph
 twh graph reverse
 ```
@@ -70,7 +71,8 @@ legacy `opt` values are still accepted for scoring and calibration. When
 after updates so opt_auto values stay in sync.
 Review ordering also incorporates a precedence score based on `enablement`,
 `blocker_relief`, `estimate_hours` (falling back to `diff`), dependency
-centrality, and the move's mode (strategic/operational/explore).
+centrality, and the move's mode (strategic/operational/explore). When a
+calibration file is present (`twh calibrate`), review uses those tuned weights.
 Review ordering also considers `Scheduled` and `Wait until`: moves without
 those fields come before moves scheduled further in the future, except when the
 timestamp is within 24 hours (or has already passed). Earlier scheduled or wait
@@ -81,14 +83,23 @@ writing updates to avoid modifying move descriptions.
 
 `twh option` estimates option value from the dependency graph and metadata,
 calibrates weights using your manual `opt_human` ratings (falling back to legacy
-`opt` values), and prints predicted `opt_auto` values. Use `--apply` to write
-`opt_auto` to moves in scope and `--include-rated` to see predictions alongside
-manual ratings. `twh option --apply` also copies legacy `opt` values into
-`opt_human` when `opt_human` is missing. Option value uses
+`opt` values), and prints predicted `opt_auto` values. If a calibration file
+exists (from `twh calibrate`), `twh option` uses those stored weights; otherwise
+it fits weights from your manual ratings. Use `--apply` to write `opt_auto` to
+moves in scope and `--include-rated` to see predictions alongside manual
+ratings. `twh option --apply` also copies legacy `opt` values into `opt_human`
+when `opt_human` is missing. Option value uses
 dependency depth, project diversity, due-date urgency, priority, and tags such
 as `probe`/`explore`/`call`/`prototype`/`test` to model information gain and
 flexibility. If you set `door=oneway` or an `estimate_minutes` UDA, those are
 also incorporated as reversibility and effort penalties.
+
+`twh calibrate` runs an interactive pairwise loop to tune precedence weights
+using your `enablement`, `blocker_relief`, and `estimate_hours`/`diff` values,
+then calibrates option value weights from manual `opt_human` ratings. It writes
+the resulting weights to `~/.config/twh/calibration.toml` (override with
+`TWH_CALIBRATION_PATH`) and, by default, applies updated `opt_auto` values to
+moves in scope (`--no-apply` skips writes).
 
 Taskwarrior UDA setup for review and dominance:
 

@@ -19,6 +19,7 @@ from .taskwarrior import (
     parse_dependencies,
     read_tasks_from_json,
 )
+from . import calibration
 
 if TYPE_CHECKING:
     from .dominance import DominanceState
@@ -38,6 +39,18 @@ PRECEDENCE_MODE_MULTIPLIERS = {
     "operational": 1.0,
     "explore": 0.9,
 }
+
+
+def load_precedence_weights() -> Dict[str, float]:
+    """
+    Load precedence weights from calibration data when available.
+
+    Returns
+    -------
+    Dict[str, float]
+        Precedence weights.
+    """
+    return calibration.load_precedence_weights(PRECEDENCE_WEIGHTS)
 
 
 @dataclass(frozen=True)
@@ -876,7 +889,11 @@ def precedence_mode_multiplier(mode: Optional[str]) -> float:
     return PRECEDENCE_MODE_MULTIPLIERS.get(key, 1.0)
 
 
-def precedence_score(task: ReviewTask, stats: PrecedenceGraphStats) -> float:
+def precedence_score(
+    task: ReviewTask,
+    stats: PrecedenceGraphStats,
+    weights: Optional[Dict[str, float]] = None,
+) -> float:
     """
     Compute precedence score based on enablement, blockers, and graph impact.
 
@@ -909,12 +926,14 @@ def precedence_score(task: ReviewTask, stats: PrecedenceGraphStats) -> float:
         float(stats.max_critical_path_len),
     )
     dep = out_degree * (1.0 + critical_len)
+    if weights is None:
+        weights = load_precedence_weights()
     base = (
-        PRECEDENCE_WEIGHTS["enablement"] * enable
-        + PRECEDENCE_WEIGHTS["blocker"] * blocker
-        + PRECEDENCE_WEIGHTS["difficulty"] * difficulty
+        weights["enablement"] * enable
+        + weights["blocker"] * blocker
+        + weights["difficulty"] * difficulty
     )
-    return base * (1.0 + PRECEDENCE_WEIGHTS["dependency"] * dep) * precedence_mode_multiplier(
+    return base * (1.0 + weights["dependency"] * dep) * precedence_mode_multiplier(
         task.mode
     )
 
@@ -1249,9 +1268,10 @@ def rank_candidates(
     candidate_list = list(candidates)
     graph_source = list(graph_tasks) if graph_tasks is not None else candidate_list
     stats = build_precedence_graph_stats(graph_source)
+    precedence_weights = load_precedence_weights()
     scored: List[ScoredTask] = []
     for task in candidate_list:
-        o_score = precedence_score(task, stats)
+        o_score = precedence_score(task, stats, weights=precedence_weights)
         score, components = score_task(task, current_mode, precedence=o_score)
         scored.append(ScoredTask(task=task, score=score, components=components))
     if dominance_tiers is None:

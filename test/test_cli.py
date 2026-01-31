@@ -158,6 +158,7 @@ def test_apply_context_to_add_args(
         (["review"], False),
         (["option"], False),
         (["dominance"], False),
+        (["calibrate"], False),
         (["--help"], False),
     ],
 )
@@ -433,6 +434,7 @@ def test_graph_falls_back_to_ascii_when_render_fails(
         ["twh", "review"],
         ["twh", "option"],
         ["twh", "dominance"],
+        ["twh", "calibrate"],
         ["twh", "--help"],
     ],
 )
