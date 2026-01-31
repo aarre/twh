@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Review Taskwarrior move metadata and suggest next actions.
+Assess Taskwarrior move metadata and suggest next actions.
 """
 
 from __future__ import annotations
@@ -1482,20 +1482,18 @@ def load_pending_tasks(filters: Optional[Sequence[str]] = None) -> List[ReviewTa
     ]
 
 
-def run_review(
+def run_ondeck(
     *,
     mode: Optional[str],
     limit: int,
     top: int,
     strict_mode: bool,
     include_dominated: bool,
-    wizard: bool,
-    wizard_once: bool,
     filters: Optional[Sequence[str]] = None,
     input_func: Callable[[str], str] = input,
 ) -> int:
     """
-    Execute the review flow: missing move metadata + recommendations.
+    Execute the ondeck flow: fill missing metadata + recommend next moves.
 
     Parameters
     ----------
@@ -1509,10 +1507,6 @@ def run_review(
         Require mode match when True.
     include_dominated : bool
         Include dominated moves when True.
-    wizard : bool
-        Prompt for missing metadata when True, including blocked moves.
-    wizard_once : bool
-        Only prompt for the first move in scope when True.
     filters : Optional[Sequence[str]]
         Additional Taskwarrior filter tokens.
     input_func : Callable[[str], str], optional
@@ -1526,7 +1520,7 @@ def run_review(
     try:
         pending = load_pending_tasks(filters=filters)
     except RuntimeError as exc:
-        print(f"twh: review failed: {exc}")
+        print(f"twh: ondeck failed: {exc}")
         return 1
 
     if not pending:
@@ -1542,10 +1536,9 @@ def run_review(
         ready,
         dominance_missing=dominance_missing,
     )
+    needs_wizard = bool(missing)
 
-    if not missing:
-        print("All pending moves have complete metadata and dominance ordering.")
-    else:
+    if needs_wizard:
         print("\nMoves missing metadata or dominance ordering (ready moves first):")
         shown = 0
         for item in missing:
@@ -1562,7 +1555,7 @@ def run_review(
 
     updated = False
     option_applied = False
-    if wizard and missing:
+    if needs_wizard:
         for item in missing:
             if all(field == "dominance" for field in item.missing):
                 continue
@@ -1575,14 +1568,12 @@ def run_review(
                 try:
                     apply_updates(move.uuid, updates)
                 except RuntimeError as exc:
-                    print(f"twh: review failed: {exc}")
+                    print(f"twh: ondeck failed: {exc}")
                     return 1
                 updated = True
                 print("Updated.")
-            if wizard_once:
-                break
 
-    if wizard and dominance_missing:
+    if needs_wizard and dominance_missing:
         from . import dominance as dominance_module
 
         tiers = dominance_module.sort_into_tiers(
@@ -1598,12 +1589,12 @@ def run_review(
         try:
             dominance_module.apply_dominance_updates(updates)
         except RuntimeError as exc:
-            print(f"twh: review failed: {exc}")
+            print(f"twh: ondeck failed: {exc}")
             return 1
         updated = True
         print(f"Dominance updated for {len(pending)} moves.")
 
-    if wizard:
+    if needs_wizard:
         from . import option_value as option_module
 
         option_exit = option_module.run_option_value(
@@ -1620,7 +1611,7 @@ def run_review(
         try:
             pending = load_pending_tasks(filters=filters)
         except RuntimeError as exc:
-            print(f"twh: review failed: {exc}")
+            print(f"twh: ondeck failed: {exc}")
             return 1
 
     report = build_review_report(

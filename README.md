@@ -7,7 +7,7 @@ twh list
 twh list reverse
 twh simple
 twh dominance
-twh review
+twh ondeck
 twh option
 twh calibrate
 twh graph
@@ -22,7 +22,7 @@ Commands that `twh` doesn't recognize are forwarded to Taskwarrior, so `twh`
 behaves like `task` for most subcommands and delegated commands replace the
 `twh` process with `task` to keep overhead low.
 `twh add` is interactive: it prompts for the move description, project, tags,
-due date, blocks, and review metadata (imp/urg/opt_human/diff/mode), then runs
+due date, blocks, and ondeck metadata (imp/urg/opt_human/diff/mode), then runs
 the dominance sorting step. Use `task add` for non-interactive adds.
 When a Taskwarrior context is active and its definition includes `project:` or
 tag filters, `twh add` automatically applies those values to new moves unless
@@ -53,32 +53,31 @@ in the `dominates` and `dominated_by` UDAs. Use it to establish a dominance
 ordering for your moves with minimal comparisons. Tie selections are persisted
 so the same pair will not be prompted again.
 
-`twh review` scans pending moves for missing metadata (imp/urg/opt_human/diff/mode)
-and missing dominance ordering, prints a short list (ready moves first), and
-then recommends the next move by scoring ready moves. The top-move list includes
+`twh ondeck` scans pending moves for missing metadata (imp/urg/opt_human/diff/mode)
+and missing dominance ordering. If anything is missing, it walks you through
+the wizard to fill metadata (including blocked moves) and collect dominance
+ordering, then recommends the next move by scoring ready moves. If metadata and
+dominance are complete, it emits the report directly. The top-move list includes
 each move's description, annotations, and a short list of first-order dominance
-relations. Use `--wizard` to fill missing fields interactively and to collect
-dominance ordering for moves in scope. Use `--mode editorial` (plus
-`--strict-mode` if desired) to bias recommendations to your current mode. You
-can pass Taskwarrior filter tokens after the command (for example
-`twh review project:work.competitiveness -WAITING`) to limit the review scope.
-When the wizard is enabled it prompts for missing metadata on all moves in
-scope, even if they are blocked. The review flow expects the `imp`, `urg`, `opt_human`,
+relations. Use `--mode editorial` (plus `--strict-mode` if desired) to bias
+recommendations to your current mode. You can pass Taskwarrior filter tokens
+after the command (for example `twh ondeck project:work.competitiveness -WAITING`)
+to limit the scope. The ondeck flow expects the `imp`, `urg`, `opt_human`,
 `diff`, `mode`, `dominates`, and `dominated_by` fields to exist as Taskwarrior
 UDAs if you want to edit them. Manual option values are stored in `opt_human`;
-legacy `opt` values are still accepted for scoring and calibration. When
-`--wizard` is enabled, `twh review` automatically runs `twh option --apply`
-after updates so opt_auto values stay in sync.
-Review ordering also incorporates a precedence score based on `enablement`,
+legacy `opt` values are still accepted for scoring and calibration. When the
+wizard runs, `twh ondeck` automatically runs `twh option --apply` after updates
+so opt_auto values stay in sync.
+Ondeck ordering also incorporates a precedence score based on `enablement`,
 `blocker_relief`, `estimate_hours` (falling back to `diff`), dependency
 centrality, and the move's mode (strategic/operational/explore). When a
-calibration file is present (`twh calibrate`), review uses those tuned weights.
-Review ordering also considers `Scheduled` and `Wait until`: moves without
+calibration file is present (`twh calibrate`), ondeck uses those tuned weights.
+Ondeck ordering also considers `Scheduled` and `Wait until`: moves without
 those fields come before moves scheduled further in the future, except when the
 timestamp is within 24 hours (or has already passed). Earlier scheduled or wait
 times are ranked ahead of later ones; when both are set, the later timestamp
 governs the ordering.
-If a required UDA is missing, `twh review` and `twh dominance` will stop before
+If a required UDA is missing, `twh ondeck` and `twh dominance` will stop before
 writing updates to avoid modifying move descriptions.
 
 `twh option` estimates option value from the dependency graph and metadata,
@@ -101,7 +100,7 @@ the resulting weights to `~/.config/twh/calibration.toml` (override with
 `TWH_CALIBRATION_PATH`) and, by default, applies updated `opt_auto` values to
 moves in scope (`--no-apply` skips writes).
 
-Taskwarrior UDA setup for review and dominance:
+Taskwarrior UDA setup for ondeck and dominance:
 
 ```
 # Dominance edges (comma-separated UUIDs)

@@ -465,7 +465,7 @@ def parse_blocks_input(value: Optional[str]) -> List[str]:
 
 def prompt_add_metadata(input_func: Callable[[str], str] = input) -> Dict[str, str]:
     """
-    Prompt for add metadata fields using the review wizard prompts.
+    Prompt for add metadata fields using the ondeck wizard prompts.
 
     Parameters
     ----------
@@ -2393,10 +2393,10 @@ def build_app():
         raise typer.Exit(code=exit_code)
 
     @app.command(
-        "review",
+        "ondeck",
         context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
     )
-    def review_cmd(
+    def ondeck_cmd(
         ctx: typer.Context,
         mode: Optional[str] = typer.Option(
             None,
@@ -2423,28 +2423,16 @@ def build_app():
             "--include-dominated",
             help="Include moves dominated by other moves.",
         ),
-        wizard: bool = typer.Option(
-            False,
-            "--wizard",
-            help="Interactively fill missing fields for moves in scope.",
-        ),
-        wizard_once: bool = typer.Option(
-            False,
-            "--wizard-once",
-            help="Only fill missing fields for the first move in scope.",
-        ),
     ):
         from . import review as review_module
 
         try:
-            exit_code = review_module.run_review(
+            exit_code = review_module.run_ondeck(
                 mode=mode,
                 limit=limit,
                 top=top,
                 strict_mode=strict_mode,
                 include_dominated=include_dominated,
-                wizard=wizard,
-                wizard_once=wizard_once,
                 filters=list(ctx.args),
             )
         except FileNotFoundError:
@@ -2545,7 +2533,7 @@ TWH_COMMANDS = {
     "tree",
     "graph",
     "simple",
-    "review",
+    "ondeck",
     "option",
     "dominance",
     "calibrate",

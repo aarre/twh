@@ -1,5 +1,5 @@
 """
-Tests for the review command logic.
+Tests for the ondeck command logic.
 """
 
 import doctest
@@ -1381,9 +1381,72 @@ def test_build_review_report_combines_missing_and_candidates():
 
 
 @pytest.mark.unit
-def test_run_review_wizard_includes_filtered_non_ready(monkeypatch):
+def test_run_ondeck_skips_wizard_when_complete(monkeypatch):
     """
-    Ensure filtered review runs wizard for non-ready tasks in scope.
+    Ensure ondeck skips the wizard when metadata and dominance are complete.
+
+    Returns
+    -------
+    None
+        This test asserts no wizard prompts when complete.
+    """
+    task = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Ready move",
+        project="work",
+        depends=[],
+        imp=1,
+        urg=1,
+        opt=1,
+        diff=1.0,
+        mode="analysis",
+        dominates=[],
+        raw={},
+    )
+
+    monkeypatch.setattr(review, "load_pending_tasks", lambda filters=None: [task])
+    monkeypatch.setattr(
+        review,
+        "_build_dominance_context",
+        lambda pending: ({}, [], set()),
+    )
+
+    def unexpected_fill(*_args, **_kwargs):
+        raise AssertionError("Wizard should not run when metadata is complete.")
+
+    option_calls: list[dict] = []
+
+    def fake_run_option_value(**kwargs):
+        option_calls.append(kwargs)
+        return 0
+
+    monkeypatch.setattr(review, "interactive_fill_missing", unexpected_fill)
+    monkeypatch.setattr(option_value, "run_option_value", fake_run_option_value)
+    monkeypatch.setattr(
+        review,
+        "build_review_report",
+        lambda *_args, **_kwargs: review.ReviewReport(missing=[], candidates=[]),
+    )
+
+    exit_code = review.run_ondeck(
+        mode=None,
+        limit=20,
+        top=5,
+        strict_mode=False,
+        include_dominated=False,
+        filters=None,
+        input_func=lambda _prompt: "",
+    )
+
+    assert exit_code == 0
+    assert option_calls == []
+
+
+@pytest.mark.unit
+def test_run_ondeck_includes_filtered_non_ready(monkeypatch):
+    """
+    Ensure filtered ondeck runs the wizard for non-ready tasks in scope.
 
     Returns
     -------
@@ -1438,14 +1501,12 @@ def test_run_review_wizard_includes_filtered_non_ready(monkeypatch):
     monkeypatch.setattr(review, "build_review_report", fake_report)
     monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
 
-    exit_code = review.run_review(
+    exit_code = review.run_ondeck(
         mode=None,
         limit=20,
         top=5,
         strict_mode=False,
         include_dominated=False,
-        wizard=True,
-        wizard_once=False,
         filters=["project:work.competitiveness"],
         input_func=lambda _prompt: "",
     )
@@ -1455,9 +1516,9 @@ def test_run_review_wizard_includes_filtered_non_ready(monkeypatch):
 
 
 @pytest.mark.unit
-def test_run_review_wizard_includes_non_ready_without_filters(monkeypatch):
+def test_run_ondeck_includes_non_ready_without_filters(monkeypatch):
     """
-    Ensure the wizard prompts for missing metadata on blocked moves by default.
+    Ensure ondeck prompts for missing metadata on blocked moves by default.
 
     Returns
     -------
@@ -1515,14 +1576,12 @@ def test_run_review_wizard_includes_non_ready_without_filters(monkeypatch):
     monkeypatch.setattr(review, "build_review_report", fake_report)
     monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
 
-    exit_code = review.run_review(
+    exit_code = review.run_ondeck(
         mode=None,
         limit=20,
         top=5,
         strict_mode=False,
         include_dominated=False,
-        wizard=True,
-        wizard_once=False,
         filters=None,
         input_func=lambda _prompt: "",
     )
@@ -1532,9 +1591,9 @@ def test_run_review_wizard_includes_non_ready_without_filters(monkeypatch):
 
 
 @pytest.mark.unit
-def test_run_review_wizard_auto_applies_option_values(monkeypatch):
+def test_run_ondeck_auto_applies_option_values(monkeypatch):
     """
-    Ensure review wizard triggers option value auto-apply.
+    Ensure ondeck triggers option value auto-apply when metadata is missing.
 
     Returns
     -------
@@ -1588,14 +1647,12 @@ def test_run_review_wizard_auto_applies_option_values(monkeypatch):
     monkeypatch.setattr(review, "apply_updates", fake_apply_updates)
     monkeypatch.setattr(option_value, "run_option_value", fake_run_option_value)
 
-    exit_code = review.run_review(
+    exit_code = review.run_ondeck(
         mode=None,
         limit=20,
         top=5,
         strict_mode=False,
         include_dominated=False,
-        wizard=True,
-        wizard_once=False,
         filters=["project:work"],
         input_func=lambda _prompt: "",
     )
@@ -1613,9 +1670,9 @@ def test_run_review_wizard_auto_applies_option_values(monkeypatch):
 
 
 @pytest.mark.unit
-def test_run_review_wizard_collects_dominance(monkeypatch):
+def test_run_ondeck_collects_dominance(monkeypatch):
     """
-    Ensure the wizard triggers dominance collection when ordering is missing.
+    Ensure ondeck triggers dominance collection when ordering is missing.
 
     Returns
     -------
@@ -1688,14 +1745,12 @@ def test_run_review_wizard_collects_dominance(monkeypatch):
     monkeypatch.setattr(dominance, "build_dominance_updates", fake_build_updates)
     monkeypatch.setattr(dominance, "apply_dominance_updates", fake_apply_updates)
 
-    exit_code = review.run_review(
+    exit_code = review.run_ondeck(
         mode=None,
         limit=20,
         top=5,
         strict_mode=False,
         include_dominated=False,
-        wizard=True,
-        wizard_once=False,
         filters=None,
         input_func=lambda _prompt: "",
     )
