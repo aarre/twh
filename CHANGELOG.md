@@ -1,3 +1,9 @@
+## 0.12.1 (2026-01-30)
+
+### Fixes
+
+- **dominance**: stop prompting over and over about dominance ties
+
 ## 0.12.0 (2026-01-30)
 
 ### Features
