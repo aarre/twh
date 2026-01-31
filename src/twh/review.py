@@ -10,7 +10,7 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone, tzinfo
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple, TYPE_CHECKING
 
 from .taskwarrior import (
     apply_case_insensitive_overrides,
@@ -25,6 +25,19 @@ if TYPE_CHECKING:
 
 
 IMMINENT_SCHEDULE_WINDOW = timedelta(hours=24)
+PRECEDENCE_HOURS_CAP = 40.0
+PRECEDENCE_PERCENTILE = 95.0
+PRECEDENCE_WEIGHTS = {
+    "enablement": 0.35,
+    "blocker": 0.30,
+    "difficulty": 0.20,
+    "dependency": 0.15,
+}
+PRECEDENCE_MODE_MULTIPLIERS = {
+    "strategic": 1.2,
+    "operational": 1.0,
+    "explore": 0.9,
+}
 
 
 @dataclass(frozen=True)
@@ -56,6 +69,12 @@ class ReviewTask:
         Auto-calculated option value estimate.
     diff : Optional[float]
         Estimated difficulty in hours.
+    enablement : Optional[float]
+        Enablement rating (0-10) for unlocking downstream moves.
+    blocker_relief : Optional[float]
+        Blocker relief rating (0-10) for removing blockers.
+    estimate_hours : Optional[float]
+        Estimated effort in hours for precedence scoring.
     mode : Optional[str]
         Mode associated with the move.
     scheduled : Optional[datetime]
@@ -83,6 +102,9 @@ class ReviewTask:
     opt_human: Optional[float] = None
     opt_auto: Optional[float] = None
     diff: Optional[float] = None
+    enablement: Optional[float] = None
+    blocker_relief: Optional[float] = None
+    estimate_hours: Optional[float] = None
     mode: Optional[str] = None
     scheduled: Optional[datetime] = None
     wait: Optional[datetime] = None
@@ -149,6 +171,9 @@ class ReviewTask:
             opt_human=parse_float("opt_human"),
             opt_auto=parse_float("opt_auto"),
             diff=parse_float("diff"),
+            enablement=parse_float("enablement"),
+            blocker_relief=parse_float("blocker_relief"),
+            estimate_hours=parse_float("estimate_hours"),
             mode=normalize_mode(payload.get("mode")),
             scheduled=parse_task_timestamp(payload.get("scheduled")),
             wait=parse_task_timestamp(payload.get("wait")),
@@ -384,6 +409,108 @@ def normalize_review_datetime(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=get_local_timezone())
     return value.astimezone(get_local_timezone())
+
+
+@dataclass(frozen=True)
+class PrecedenceGraphStats:
+    """
+    Dependency stats for precedence scoring.
+
+    Attributes
+    ----------
+    out_degree : Dict[str, int]
+        Count of dependent moves for each UUID.
+    critical_path_len : Dict[str, int]
+        Longest downstream path length for each UUID.
+    max_out_degree : int
+        Normalization cap for out-degree.
+    max_critical_path_len : int
+        Normalization cap for critical path length.
+    """
+
+    out_degree: Dict[str, int]
+    critical_path_len: Dict[str, int]
+    max_out_degree: int
+    max_critical_path_len: int
+
+
+def _resolve_dependency_uuid(
+    value: str,
+    uuid_set: set[str],
+    id_map: Dict[str, str],
+) -> Optional[str]:
+    if value in uuid_set:
+        return value
+    return id_map.get(str(value))
+
+
+def _percentile(values: Sequence[int], percentile: float) -> int:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    rank = math.ceil((percentile / 100.0) * len(ordered)) - 1
+    rank = max(0, min(rank, len(ordered) - 1))
+    return ordered[rank]
+
+
+def build_precedence_graph_stats(
+    tasks: Sequence[ReviewTask],
+) -> PrecedenceGraphStats:
+    """
+    Build dependency stats for precedence scoring.
+
+    Parameters
+    ----------
+    tasks : Sequence[ReviewTask]
+        Moves in scope.
+
+    Returns
+    -------
+    PrecedenceGraphStats
+        Graph statistics for precedence calculations.
+    """
+    uuid_set = {task.uuid for task in tasks}
+    id_map = {
+        str(task.id): task.uuid for task in tasks if task.id is not None
+    }
+    depended_by: Dict[str, Set[str]] = {uuid: set() for uuid in uuid_set}
+
+    for task in tasks:
+        for dep in task.depends:
+            resolved = _resolve_dependency_uuid(str(dep), uuid_set, id_map)
+            if resolved:
+                depended_by.setdefault(resolved, set()).add(task.uuid)
+
+    out_degree = {uuid: len(depended_by.get(uuid, set())) for uuid in uuid_set}
+
+    cache: Dict[str, int] = {}
+    visiting: Set[str] = set()
+
+    def critical_path(node: str) -> int:
+        if node in cache:
+            return cache[node]
+        if node in visiting:
+            return 0
+        visiting.add(node)
+        max_len = 0
+        for child in depended_by.get(node, set()):
+            max_len = max(max_len, 1 + critical_path(child))
+        visiting.discard(node)
+        cache[node] = max_len
+        return max_len
+
+    critical_path_len = {uuid: critical_path(uuid) for uuid in uuid_set}
+    max_out_degree = _percentile(list(out_degree.values()), PRECEDENCE_PERCENTILE)
+    max_critical_path_len = _percentile(
+        list(critical_path_len.values()),
+        PRECEDENCE_PERCENTILE,
+    )
+    return PrecedenceGraphStats(
+        out_degree=out_degree,
+        critical_path_len=critical_path_len,
+        max_out_degree=max_out_degree,
+        max_critical_path_len=max_critical_path_len,
+    )
 
 
 def effective_schedule_time(task: ReviewTask) -> Optional[datetime]:
@@ -689,6 +816,109 @@ def mode_multiplier(current: Optional[str], required: Optional[str]) -> float:
     return 0.85
 
 
+def normalize_score(value: float, low: float, high: float) -> float:
+    """
+    Normalize a value to the 0-1 range.
+
+    Parameters
+    ----------
+    value : float
+        Value to normalize.
+    low : float
+        Minimum expected value.
+    high : float
+        Maximum expected value.
+
+    Returns
+    -------
+    float
+        Normalized score between 0 and 1.
+    """
+    if high <= low:
+        return 0.0
+    return max(0.0, min(1.0, (value - low) / (high - low)))
+
+
+def hours_score(hours: Optional[float], cap: float = PRECEDENCE_HOURS_CAP) -> float:
+    """
+    Score estimated hours, favoring shorter durations.
+
+    Parameters
+    ----------
+    hours : Optional[float]
+        Estimated hours.
+    cap : float, optional
+        Upper bound for normalization (default: PRECEDENCE_HOURS_CAP).
+
+    Returns
+    -------
+    float
+        Score between 0 and 1, where lower hours yield higher scores.
+    """
+    return 1.0 - normalize_score(float(hours or 0.0), 0.0, cap)
+
+
+def precedence_mode_multiplier(mode: Optional[str]) -> float:
+    """
+    Return the precedence mode multiplier for a move.
+
+    Parameters
+    ----------
+    mode : Optional[str]
+        Move mode.
+
+    Returns
+    -------
+    float
+        Mode multiplier for precedence scoring.
+    """
+    key = (mode or "").strip().lower()
+    return PRECEDENCE_MODE_MULTIPLIERS.get(key, 1.0)
+
+
+def precedence_score(task: ReviewTask, stats: PrecedenceGraphStats) -> float:
+    """
+    Compute precedence score based on enablement, blockers, and graph impact.
+
+    Parameters
+    ----------
+    task : ReviewTask
+        Move to score.
+    stats : PrecedenceGraphStats
+        Dependency graph statistics.
+
+    Returns
+    -------
+    float
+        Precedence score for the move.
+    """
+    enable = normalize_score(task.enablement or 0.0, 0.0, 10.0)
+    blocker = normalize_score(task.blocker_relief or 0.0, 0.0, 10.0)
+    estimate = task.estimate_hours
+    if estimate is None:
+        estimate = task.diff
+    difficulty = hours_score(estimate)
+    out_degree = normalize_score(
+        float(stats.out_degree.get(task.uuid, 0)),
+        0.0,
+        float(stats.max_out_degree),
+    )
+    critical_len = normalize_score(
+        float(stats.critical_path_len.get(task.uuid, 0)),
+        0.0,
+        float(stats.max_critical_path_len),
+    )
+    dep = out_degree * (1.0 + critical_len)
+    base = (
+        PRECEDENCE_WEIGHTS["enablement"] * enable
+        + PRECEDENCE_WEIGHTS["blocker"] * blocker
+        + PRECEDENCE_WEIGHTS["difficulty"] * difficulty
+    )
+    return base * (1.0 + PRECEDENCE_WEIGHTS["dependency"] * dep) * precedence_mode_multiplier(
+        task.mode
+    )
+
+
 def manual_option_value(task: ReviewTask) -> Optional[float]:
     """
     Return the manual option value when provided.
@@ -741,9 +971,10 @@ def effective_option_value(task: ReviewTask) -> float:
 def score_task(
     task: ReviewTask,
     current_mode: Optional[str],
+    precedence: float = 0.0,
 ) -> Tuple[float, Dict[str, float]]:
     """
-    Score a move based on importance, urgency, option value, difficulty, and mode.
+    Score a move based on importance, urgency, option value, difficulty, and precedence.
 
     Parameters
     ----------
@@ -751,6 +982,8 @@ def score_task(
         Move to score.
     current_mode : Optional[str]
         Current mode for scoring.
+    precedence : float, optional
+        Precedence score multiplier component (default: 0.0).
 
     Returns
     -------
@@ -784,13 +1017,16 @@ def score_task(
         + (0.9 * opt_score)
         + (0.25 * diff_ease)
     )
-    total = base * mode_mult * missing_penalty
+    o_mult = 1.0 + max(0.0, precedence)
+    total = base * mode_mult * missing_penalty * o_mult
 
     components = {
         "imp_score": imp_score,
         "urg_score": urg_score,
         "opt_score": opt_score,
         "diff_score": diff_ease,
+        "o_score": precedence,
+        "o_mult": o_mult,
         "time_pressure": time_pressure,
         "mode_mult": mode_mult,
         "missing_mult": missing_penalty,
@@ -832,6 +1068,7 @@ def format_task_rationale(task: ReviewTask, components: Dict[str, float]) -> str
         f"imp={components['imp_score']:.3f}, "
         f"opt={components['opt_score']:.2f}, "
         f"diff={components['diff_score']:.2f}, "
+        f"o={components['o_score']:.2f}, "
         f"mode*{components['mode_mult']:.2f}, "
         f"spec*{components['missing_mult']:.2f})"
     )
@@ -983,6 +1220,7 @@ def rank_candidates(
     top: int,
     dominance_tiers: Optional[List[List[ReviewTask]]] = None,
     now: Optional[datetime] = None,
+    graph_tasks: Optional[Iterable[ReviewTask]] = None,
 ) -> List[ScoredTask]:
     """
     Rank candidate moves by dominance tier and score.
@@ -1000,6 +1238,8 @@ def rank_candidates(
         from the candidate set.
     now : Optional[datetime]
         Reference time for schedule-aware ordering (default: current time).
+    graph_tasks : Optional[Iterable[ReviewTask]]
+        Tasks to use for precedence graph stats (defaults to candidates).
 
     Returns
     -------
@@ -1007,9 +1247,12 @@ def rank_candidates(
         Ranked candidates.
     """
     candidate_list = list(candidates)
+    graph_source = list(graph_tasks) if graph_tasks is not None else candidate_list
+    stats = build_precedence_graph_stats(graph_source)
     scored: List[ScoredTask] = []
     for task in candidate_list:
-        score, components = score_task(task, current_mode)
+        o_score = precedence_score(task, stats)
+        score, components = score_task(task, current_mode, precedence=o_score)
         scored.append(ScoredTask(task=task, score=score, components=components))
     if dominance_tiers is None:
         from . import dominance as dominance_module
@@ -1084,6 +1327,7 @@ def build_review_report(
         current_mode=current_mode,
         top=top,
         dominance_tiers=dominance_tiers,
+        graph_tasks=pending_list,
     )
     return ReviewReport(missing=missing, candidates=ranked)
 

@@ -68,6 +68,9 @@ UDAs if you want to edit them. Manual option values are stored in `opt_human`;
 legacy `opt` values are still accepted for scoring and calibration. When
 `--wizard` is enabled, `twh review` automatically runs `twh option --apply`
 after updates so opt_auto values stay in sync.
+Review ordering also incorporates a precedence score based on `enablement`,
+`blocker_relief`, `estimate_hours` (falling back to `diff`), dependency
+centrality, and the move's mode (strategic/operational/explore).
 Review ordering also considers `Scheduled` and `Wait until`: moves without
 those fields come before moves scheduled further in the future, except when the
 timestamp is within 24 hours (or has already passed). Earlier scheduled or wait
@@ -99,6 +102,14 @@ uda.dominated_by.label=<Dom
 # Difficulty (estimated hours of effort)
 uda.diff.type=numeric
 uda.diff.label=Diff(h)
+
+# Precedence scoring helpers
+uda.enablement.type=numeric
+uda.enablement.label=Enablement (0-10)
+uda.blocker_relief.type=numeric
+uda.blocker_relief.label=Blocker Relief (0-10)
+uda.estimate_hours.type=numeric
+uda.estimate_hours.label=Estimate (hours)
 
 # Manual option value ratings
 uda.opt_human.type=numeric

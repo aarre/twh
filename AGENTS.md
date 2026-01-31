@@ -46,6 +46,7 @@ Already implemented, among other requirements:
 * `twh review` ordering considers `Scheduled` and `Wait until`, prioritizing imminent/past times and otherwise preferring unscheduled moves ahead of future scheduled ones (using the later timestamp when both are set).
 * `twh option` computes opt_auto estimates calibrated from manual `opt_human` ratings (falling back to `opt`) and can write them with `--apply`, which also migrates legacy `opt` values into `opt_human` when missing, using dependencies, due/priority, tags like `probe`, and optional `door`/`kind`/`estimate_minutes` UDAs.
 * `twh` enforces case-insensitive Taskwarrior searches for all selection-based commands and delegated task invocations.
+* `twh review` precedence scoring incorporates `enablement`, `blocker_relief`, `estimate_hours` (fallback to `diff`), and dependency centrality with a strategic/operational/explore mode multiplier.
 
 ## Project notes
 

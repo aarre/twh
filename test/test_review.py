@@ -199,6 +199,31 @@ def test_review_task_from_json_parses_opt_human():
 
 
 @pytest.mark.unit
+def test_review_task_from_json_parses_precedence_fields():
+    """
+    Ensure precedence-related fields are parsed for review tasks.
+
+    Returns
+    -------
+    None
+        This test asserts precedence field parsing.
+    """
+    payload = {
+        "uuid": "u1",
+        "description": "Precedence move",
+        "enablement": "6",
+        "blocker_relief": "3.5",
+        "estimate_hours": "2.25",
+    }
+
+    task = review.ReviewTask.from_json(payload)
+
+    assert task.enablement == 6.0
+    assert task.blocker_relief == 3.5
+    assert task.estimate_hours == 2.25
+
+
+@pytest.mark.unit
 def test_parse_annotations_formats_entry_time(monkeypatch):
     """
     Ensure annotation entries are formatted as local-readable date-times.
@@ -336,6 +361,67 @@ def test_collect_missing_metadata_orders_ready_first():
     assert missing[0].missing == ("imp",)
     assert missing[1].missing == ("opt_human", "diff", "mode")
     assert missing[2].missing == ("urg",)
+
+
+@pytest.mark.unit
+def test_build_precedence_graph_stats_counts_edges():
+    """
+    Ensure precedence graph stats reflect out-degree and path length.
+
+    Returns
+    -------
+    None
+        This test asserts precedence graph metrics.
+    """
+    t1 = review.ReviewTask(
+        uuid="a",
+        id=1,
+        description="Move A",
+        project=None,
+        depends=[],
+        imp=None,
+        urg=None,
+        opt=None,
+        diff=None,
+        mode=None,
+        dominates=[],
+        raw={},
+    )
+    t2 = review.ReviewTask(
+        uuid="b",
+        id=2,
+        description="Move B",
+        project=None,
+        depends=["1"],
+        imp=None,
+        urg=None,
+        opt=None,
+        diff=None,
+        mode=None,
+        dominates=[],
+        raw={},
+    )
+    t3 = review.ReviewTask(
+        uuid="c",
+        id=3,
+        description="Move C",
+        project=None,
+        depends=["2"],
+        imp=None,
+        urg=None,
+        opt=None,
+        diff=None,
+        mode=None,
+        dominates=[],
+        raw={},
+    )
+
+    stats = review.build_precedence_graph_stats([t1, t2, t3])
+
+    assert stats.out_degree == {"a": 1, "b": 1, "c": 0}
+    assert stats.critical_path_len == {"a": 2, "b": 1, "c": 0}
+    assert stats.max_out_degree == 1
+    assert stats.max_critical_path_len == 2
 
 
 @pytest.mark.unit
@@ -680,6 +766,52 @@ def test_rank_candidates_orders_by_score():
         opt=0,
         diff=2.0,
         mode=None,
+        dominates=[],
+        raw={},
+    )
+
+    ranked = review.rank_candidates([t2, t1], current_mode=None, top=2)
+
+    assert [item.task.uuid for item in ranked] == ["u1", "u2"]
+
+
+@pytest.mark.unit
+def test_rank_candidates_uses_precedence_score():
+    """
+    Ensure precedence scoring influences candidate order.
+
+    Returns
+    -------
+    None
+        This test asserts precedence-based ordering.
+    """
+    t1 = review.ReviewTask(
+        uuid="u1",
+        id=2,
+        description="Higher enablement",
+        project=None,
+        depends=[],
+        imp=2,
+        urg=2,
+        opt=5,
+        diff=2.0,
+        mode=None,
+        enablement=10.0,
+        dominates=[],
+        raw={},
+    )
+    t2 = review.ReviewTask(
+        uuid="u2",
+        id=1,
+        description="Lower enablement",
+        project=None,
+        depends=[],
+        imp=2,
+        urg=2,
+        opt=5,
+        diff=2.0,
+        mode=None,
+        enablement=0.0,
         dominates=[],
         raw={},
     )
