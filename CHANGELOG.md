@@ -1,3 +1,13 @@
+## 0.13.0 (2026-01-31)
+
+### Features
+
+- **review**: integreate new precedence ("o") score into `twh review` ordering
+
+### Fixes
+
+- **twh**: make twh matches non-case-sensitive
+
 ## 0.12.1 (2026-01-30)
 
 ### Fixes
