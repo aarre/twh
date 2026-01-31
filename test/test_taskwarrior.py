@@ -2,6 +2,7 @@
 Tests for Taskwarrior config helpers.
 """
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -70,3 +71,50 @@ def test_missing_udas_reports_missing(tmp_path, monkeypatch):
     missing = taskwarrior.missing_udas(["diff"], get_setting=lambda _key: None)
 
     assert missing == ["diff"]
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        (["list"], ["rc.search.case.sensitive=no", "list"]),
+        (
+            ["rc.search.case.sensitive=yes", "list"],
+            ["rc.search.case.sensitive=no", "list"],
+        ),
+    ],
+)
+@pytest.mark.unit
+def test_apply_case_insensitive_overrides(args, expected):
+    """
+    Ensure case-insensitive overrides are prepended and replace existing values.
+
+    Returns
+    -------
+    None
+        This test asserts override formatting.
+    """
+    assert taskwarrior.apply_case_insensitive_overrides(args) == expected
+
+
+@pytest.mark.unit
+def test_get_tasks_from_taskwarrior_applies_case_insensitive_override(monkeypatch):
+    """
+    Ensure Taskwarrior export uses case-insensitive search overrides.
+
+    Returns
+    -------
+    None
+        This test asserts command arguments.
+    """
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+
+    monkeypatch.setattr(taskwarrior.subprocess, "run", fake_run)
+
+    tasks = taskwarrior.get_tasks_from_taskwarrior(status=None)
+
+    assert tasks == []
+    assert calls == [["task", "rc.search.case.sensitive=no", "export"]]

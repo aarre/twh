@@ -8,7 +8,39 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Sequence
+
+
+CASE_INSENSITIVE_OVERRIDE = "rc.search.case.sensitive=no"
+
+
+def apply_case_insensitive_overrides(args: Sequence[str]) -> List[str]:
+    """
+    Prepend the case-insensitive search override to Taskwarrior args.
+
+    Parameters
+    ----------
+    args : Sequence[str]
+        Taskwarrior arguments excluding the executable.
+
+    Returns
+    -------
+    List[str]
+        Arguments with the case-insensitive override applied.
+
+    Examples
+    --------
+    >>> apply_case_insensitive_overrides(["list"])
+    ['rc.search.case.sensitive=no', 'list']
+    >>> apply_case_insensitive_overrides(["rc.search.case.sensitive=yes", "list"])
+    ['rc.search.case.sensitive=no', 'list']
+    """
+    cleaned = [
+        arg
+        for arg in args
+        if not str(arg).startswith("rc.search.case.sensitive=")
+    ]
+    return [CASE_INSENSITIVE_OVERRIDE, *cleaned]
 
 
 def parse_taskwarrior_json(text: str) -> List[Dict]:
@@ -40,8 +72,9 @@ def get_tasks_from_taskwarrior(status: Optional[str] = "pending") -> List[Dict]:
     Execute Taskwarrior export and return parsed task data.
     """
     try:
+        task_args = apply_case_insensitive_overrides(["export"])
         result = subprocess.run(
-            ["task", "export"],
+            ["task", *task_args],
             capture_output=True,
             text=True,
             check=True

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from .taskwarrior import (
+    apply_case_insensitive_overrides,
     filter_modified_zero_lines,
     missing_udas,
     parse_dependencies,
@@ -242,7 +243,8 @@ def run_task_command(
         kwargs.update({"capture_output": True, "text": True})
     if stdin is not None:
         kwargs["stdin"] = stdin
-    return subprocess.run(["task", *args], **kwargs)
+    task_args = apply_case_insensitive_overrides(list(args))
+    return subprocess.run(["task", *task_args], **kwargs)
 
 
 def parse_uuid_list(value: Any) -> List[str]:

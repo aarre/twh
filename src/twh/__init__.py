@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .taskwarrior import (
+    apply_case_insensitive_overrides,
     filter_modified_zero_lines,
     get_tasks_from_taskwarrior,
     missing_udas,
@@ -1223,7 +1224,8 @@ def run_task_command(
         kwargs.update({"capture_output": True, "text": True})
     if stdin is not None:
         kwargs["stdin"] = stdin
-    return subprocess.run(["task", *args], **kwargs)
+    task_args = apply_case_insensitive_overrides(args)
+    return subprocess.run(["task", *task_args], **kwargs)
 
 
 def exec_task_command(args: List[str]) -> int:
@@ -1240,7 +1242,8 @@ def exec_task_command(args: List[str]) -> int:
     int
         Unreachable return code placeholder.
     """
-    os.execvp("task", ["task", *args])
+    task_args = apply_case_insensitive_overrides(args)
+    os.execvp("task", ["task", *task_args])
     return 1
 
 

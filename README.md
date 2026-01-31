@@ -14,6 +14,8 @@ twh graph reverse
 ```
 
 twh refers to Taskwarrior tasks as moves in its output and documentation.
+Unlike `task`, `twh` forces case-insensitive searches so `twh Task` matches
+moves containing `task`, `Task`, or `TASK`.
 
 Commands that `twh` doesn't recognize are forwarded to Taskwarrior, so `twh`
 behaves like `task` for most subcommands and delegated commands replace the

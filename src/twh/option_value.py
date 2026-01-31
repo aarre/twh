@@ -14,6 +14,7 @@ from datetime import datetime, timezone, tzinfo
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .taskwarrior import (
+    apply_case_insensitive_overrides,
     filter_modified_zero_lines,
     missing_udas,
     parse_dependencies,
@@ -843,7 +844,8 @@ def run_task_command(
     kwargs: Dict[str, Any] = {"check": False}
     if capture_output:
         kwargs.update({"capture_output": True, "text": True})
-    return subprocess.run(["task", *args], **kwargs)
+    task_args = apply_case_insensitive_overrides(list(args))
+    return subprocess.run(["task", *task_args], **kwargs)
 
 
 def apply_option_values(

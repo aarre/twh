@@ -1139,7 +1139,7 @@ def test_apply_updates_suppresses_modified_zero(monkeypatch, capsys):
 
 
 @pytest.mark.unit
-def test_apply_updates_requires_udas(monkeypatch):
+def test_apply_updates_requires_udas(tmp_path, monkeypatch):
     """
     Ensure missing UDAs abort updates to avoid modifying descriptions.
 
@@ -1148,6 +1148,9 @@ def test_apply_updates_requires_udas(monkeypatch):
     None
         This test asserts UDA guard behavior.
     """
+    taskrc = tmp_path / ".taskrc"
+    taskrc.write_text("", encoding="utf-8")
+    monkeypatch.setenv("TASKRC", str(taskrc))
     calls = []
 
     def fake_runner(args, capture_output=False, **_kwargs):
