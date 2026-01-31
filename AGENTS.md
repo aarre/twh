@@ -48,6 +48,7 @@ Already implemented, among other requirements:
 * `twh calibrate` runs interactive pairwise precedence calibration and option value calibration, writes weights to `~/.config/twh/calibration.toml` (override with `TWH_CALIBRATION_PATH`), and can apply updated `opt_auto` values; `twh review` and `twh option` use stored calibration weights when present.
 * `twh` enforces case-insensitive Taskwarrior searches for all selection-based commands and delegated task invocations.
 * `twh review` precedence scoring incorporates `enablement`, `blocker_relief`, `estimate_hours` (fallback to `diff`), and dependency centrality with a strategic/operational/explore mode multiplier.
+* `twh` enables readline-style line editing for interactive prompts (via `readline`/`pyreadline3`) so arrow keys and common editing keys work in terminals like Tabby on WSL.
 
 ## Project notes
 

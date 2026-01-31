@@ -3,6 +3,7 @@
 Hierarchical view of Taskwarrior moves by dependency.
 """
 
+import importlib
 import json
 import os
 import re
@@ -25,6 +26,38 @@ from .taskwarrior import (
     parse_dependencies,
     read_tasks_from_json,
 )
+
+def enable_line_editing(is_interactive: Optional[bool] = None) -> bool:
+    """
+    Enable readline-style line editing for interactive input prompts.
+
+    Parameters
+    ----------
+    is_interactive : Optional[bool], optional
+        Override for stdin TTY detection (default: sys.stdin.isatty()).
+
+    Returns
+    -------
+    bool
+        True when a readline-compatible module is available.
+
+    Examples
+    --------
+    >>> enable_line_editing(is_interactive=False)
+    False
+    """
+    if is_interactive is None:
+        is_interactive = sys.stdin.isatty()
+    if not is_interactive:
+        return False
+
+    for module_name in ("readline", "pyreadline3", "pyreadline"):
+        try:
+            importlib.import_module(module_name)
+        except ImportError:
+            continue
+        return True
+    return False
 
 
 def build_tree_prefix(ancestor_has_more: List[bool]) -> str:
@@ -2578,6 +2611,7 @@ def main():
 
     If the command is not recognized, delegate to Taskwarrior.
     """
+    enable_line_editing()
     argv = sys.argv[1:]
     if argv and argv[0] == "add":
         if has_help_args(argv):
