@@ -245,8 +245,8 @@ def test_build_dominance_updates_orders_by_tier():
     assert updates["a"].dominates == ["b", "c"]
     assert updates["a"].dominated_by == []
     assert updates["b"].dominates == []
-    assert updates["b"].dominated_by == ["a"]
-    assert updates["c"].dominated_by == ["a"]
+    assert updates["b"].dominated_by == ["a", "c"]
+    assert updates["c"].dominated_by == ["a", "b"]
 
 
 @pytest.mark.unit
@@ -353,3 +353,22 @@ def test_dominance_missing_uuids_detects_unknown_pairs():
     missing = dominance.dominance_missing_uuids([move_a, move_b], state)
 
     assert missing == {"a", "b"}
+
+
+@pytest.mark.unit
+def test_dominance_missing_uuids_skips_ties():
+    """
+    Ensure tied moves are not flagged as missing.
+
+    Returns
+    -------
+    None
+        This test asserts tie handling in missing detection.
+    """
+    move_a = make_move("a", dominated_by=["b"])
+    move_b = make_move("b", dominated_by=["a"])
+    state = dominance.build_dominance_state([move_a, move_b])
+
+    missing = dominance.dominance_missing_uuids([move_a, move_b], state)
+
+    assert missing == set()

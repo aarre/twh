@@ -2,6 +2,7 @@
 Tests for option value calculation and calibration.
 """
 
+import subprocess
 from datetime import datetime, timezone
 from math import log
 
@@ -154,6 +155,42 @@ def test_manual_option_value_prefers_opt_human():
 
     task = make_task("u3")
     assert option_value.manual_option_value(task) is None
+
+
+@pytest.mark.unit
+def test_apply_option_values_copies_opt_to_opt_human(monkeypatch):
+    """
+    Ensure legacy opt values are copied to opt_human when applying.
+
+    Returns
+    -------
+    None
+        This test asserts opt_human migration.
+    """
+    tasks = [
+        make_task("u1", opt=7.0, opt_auto=1.0),
+        make_task("u2", opt_human=5.0, opt=5.0, opt_auto=2.0),
+    ]
+    predictions = {"u1": 4.2, "u2": 2.0}
+
+    calls = []
+
+    def fake_runner(args, capture_output=False, **_kwargs):
+        calls.append((args, capture_output))
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(option_value, "missing_udas", lambda _fields: [])
+
+    exit_code = option_value.apply_option_values(
+        tasks,
+        predictions,
+        runner=fake_runner,
+    )
+
+    assert exit_code == 0
+    assert calls == [
+        (["u1", "modify", "opt_auto:4.2", "opt_human:7.0"], True),
+    ]
 
 
 @pytest.mark.unit

@@ -47,7 +47,8 @@ and `twh simple` runs with stdin closed to prevent blocking.
 `twh dominance` walks you through pairwise dominance choices for moves in
 scope, taking dependencies into account, and records the resulting hierarchy
 in the `dominates` and `dominated_by` UDAs. Use it to establish a dominance
-ordering for your moves with minimal comparisons.
+ordering for your moves with minimal comparisons. Tie selections are persisted
+so the same pair will not be prompted again.
 
 `twh review` scans pending moves for missing metadata (imp/urg/opt_human/diff/mode)
 and missing dominance ordering, prints a short list (ready moves first), and
@@ -77,7 +78,8 @@ writing updates to avoid modifying move descriptions.
 calibrates weights using your manual `opt_human` ratings (falling back to legacy
 `opt` values), and prints predicted `opt_auto` values. Use `--apply` to write
 `opt_auto` to moves in scope and `--include-rated` to see predictions alongside
-manual ratings. Option value uses
+manual ratings. `twh option --apply` also copies legacy `opt` values into
+`opt_human` when `opt_human` is missing. Option value uses
 dependency depth, project diversity, due-date urgency, priority, and tags such
 as `probe`/`explore`/`call`/`prototype`/`test` to model information gain and
 flexibility. If you set `door=oneway` or an `estimate_minutes` UDA, those are

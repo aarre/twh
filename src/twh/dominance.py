@@ -427,9 +427,11 @@ def build_dominance_updates(tiers: List[List[ReviewTask]]) -> Dict[str, Dominanc
         upper = [task.uuid for upper_tier in tiers[:tier_idx] for task in upper_tier]
         lower = [task.uuid for lower_tier in tiers[tier_idx + 1 :] for task in lower_tier]
         for task in tier:
+            # Persist ties without marking moves as dominated.
+            ties = [other.uuid for other in tier if other.uuid != task.uuid]
             updates[task.uuid] = DominanceUpdate(
                 dominates=[uuid for uuid in lower if uuid != task.uuid],
-                dominated_by=[uuid for uuid in upper if uuid != task.uuid],
+                dominated_by=[uuid for uuid in upper if uuid != task.uuid] + ties,
             )
     return updates
 

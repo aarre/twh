@@ -870,7 +870,26 @@ def apply_option_values(
     """
     if runner is None:
         runner = run_task_command
-    missing = missing_udas(["opt_auto"])
+
+    updates: List[Tuple[str, Dict[str, str]]] = []
+    required_udas: Set[str] = set()
+    for task in tasks:
+        task_updates: Dict[str, str] = {}
+        predicted = predictions.get(task.uuid)
+        if predicted is not None:
+            if task.opt_auto is None or abs(task.opt_auto - predicted) >= 0.05:
+                task_updates["opt_auto"] = format_option_value(predicted)
+                required_udas.add("opt_auto")
+        if task.opt_human is None and task.opt is not None:
+            task_updates["opt_human"] = format_option_value(task.opt)
+            required_udas.add("opt_human")
+        if task_updates:
+            updates.append((task.uuid, task_updates))
+
+    if not updates:
+        return 0
+
+    missing = missing_udas(sorted(required_udas))
     if missing:
         missing_list = ", ".join(missing)
         raise RuntimeError(
@@ -879,17 +898,9 @@ def apply_option_values(
         )
 
     exit_code = 0
-    for task in tasks:
-        predicted = predictions.get(task.uuid)
-        if predicted is None:
-            continue
-        value = format_option_value(predicted)
-        if task.opt_auto is not None and abs(task.opt_auto - predicted) < 0.05:
-            continue
-        result = runner(
-            [task.uuid, "modify", f"opt_auto:{value}"],
-            capture_output=True,
-        )
+    for uuid, task_updates in updates:
+        parts = [f"{key}:{value}" for key, value in task_updates.items()]
+        result = runner([uuid, "modify", *parts], capture_output=True)
         for line in filter_modified_zero_lines(result.stdout):
             print(line)
         if result.stderr:
