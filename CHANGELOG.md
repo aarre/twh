@@ -1,3 +1,9 @@
+## 0.13.1 (2026-01-31)
+
+### Fixes
+
+- **readline**: enable readline-style line editing at twh startup so interactive prompts (like the add description field) accept arrow keys and common editing shortcuts in Tabby/WSL
+
 ## 0.13.0 (2026-01-31)
 
 ### Features
