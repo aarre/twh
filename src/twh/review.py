@@ -39,6 +39,9 @@ PRECEDENCE_MODE_MULTIPLIERS = {
     "operational": 1.0,
     "explore": 0.9,
 }
+IN_PROGRESS_LABEL = "[IN PROGRESS]"
+IN_PROGRESS_COLOR = "\x1b[42m"
+ANSI_RESET = "\x1b[0m"
 
 
 def load_precedence_weights() -> Dict[str, float]:
@@ -94,6 +97,8 @@ class ReviewTask:
         Scheduled datetime for the move.
     wait : Optional[datetime]
         Wait-until datetime for the move.
+    start : Optional[datetime]
+        Start datetime for in-progress moves.
     dominates : List[str]
         UUIDs explicitly dominated by this move.
     dominated_by : List[str]
@@ -121,6 +126,7 @@ class ReviewTask:
     mode: Optional[str] = None
     scheduled: Optional[datetime] = None
     wait: Optional[datetime] = None
+    start: Optional[datetime] = None
     dominates: List[str] = field(default_factory=list)
     dominated_by: List[str] = field(default_factory=list)
     annotations: List[str] = field(default_factory=list)
@@ -190,6 +196,7 @@ class ReviewTask:
             mode=normalize_mode(payload.get("mode")),
             scheduled=parse_task_timestamp(payload.get("scheduled")),
             wait=parse_task_timestamp(payload.get("wait")),
+            start=parse_task_timestamp(payload.get("start")),
             dominates=parse_uuid_list(payload.get("dominates")),
             dominated_by=parse_uuid_list(payload.get("dominated_by")),
             annotations=parse_annotations(payload.get("annotations")),
@@ -760,6 +767,107 @@ def collect_missing_metadata(
     return items
 
 
+def colorize_in_progress(label: str) -> str:
+    """
+    Colorize the in-progress marker for terminal output.
+
+    Parameters
+    ----------
+    label : str
+        Marker label to color.
+
+    Returns
+    -------
+    str
+        Colored marker string.
+
+    Examples
+    --------
+    >>> colorize_in_progress(IN_PROGRESS_LABEL)
+    '\\x1b[42m[IN PROGRESS]\\x1b[0m'
+    """
+    return f"{IN_PROGRESS_COLOR}{label}{ANSI_RESET}"
+
+
+def started_marker(task: ReviewTask) -> str:
+    """
+    Return an in-progress marker for started moves.
+
+    Parameters
+    ----------
+    task : ReviewTask
+        Move to inspect.
+
+    Returns
+    -------
+    str
+        Marker string when the move is in progress.
+
+    Examples
+    --------
+    >>> task = ReviewTask(
+    ...     "u1",
+    ...     1,
+    ...     "Move",
+    ...     None,
+    ...     [],
+    ...     1,
+    ...     1,
+    ...     1,
+    ...     start=datetime(2024, 1, 1, 9, 0, 0),
+    ... )
+    >>> started_marker(task)
+    ' \\x1b[42m[IN PROGRESS]\\x1b[0m'
+    >>> started_marker(ReviewTask("u2", 2, "Move", None, [], 1, 1, 1))
+    ''
+    """
+    if not task.start:
+        return ""
+    return f" {colorize_in_progress(IN_PROGRESS_LABEL)}"
+
+
+def format_missing_metadata_line(item: MissingMetadata) -> str:
+    """
+    Format a missing metadata list line for ondeck.
+
+    Parameters
+    ----------
+    item : MissingMetadata
+        Missing metadata entry.
+
+    Returns
+    -------
+    str
+        Formatted line for display.
+
+    Examples
+    --------
+    >>> task = ReviewTask(
+    ...     "u1",
+    ...     1,
+    ...     "Move",
+    ...     "work",
+    ...     [],
+    ...     1,
+    ...     1,
+    ...     1,
+    ...     start=datetime(2024, 1, 1, 9, 0, 0),
+    ... )
+    >>> item = MissingMetadata(task=task, missing=("imp", "mode"), is_ready=True)
+    >>> format_missing_metadata_line(item)
+    '[1] \\x1b[42m[IN PROGRESS]\\x1b[0m Move  project=work  missing=imp,mode'
+    """
+    move = item.task
+    move_id = str(move.id) if move.id is not None else move.uuid[:8]
+    missing_fields_str = ",".join(item.missing)
+    project = move.project or "-"
+    marker = started_marker(move)
+    return (
+        f"[{move_id}]{marker} {move.description}  "
+        f"project={project}  missing={missing_fields_str}"
+    )
+
+
 def _build_dominance_context(
     pending: Sequence[ReviewTask],
 ) -> Tuple["DominanceState", List[List[ReviewTask]], set[str]]:
@@ -1078,8 +1186,9 @@ def format_task_rationale(task: ReviewTask, components: Dict[str, float]) -> str
     mode = task.mode or "-"
     proj = task.project or "-"
     move_id = str(task.id) if task.id is not None else task.uuid[:8]
+    marker = started_marker(task)
     return (
-        f"[{move_id}] {task.description}\n"
+        f"[{move_id}]{marker} {task.description}\n"
         f"  project={proj} mode={mode} imp={imp}d urg={urg}d opt={opt} diff={diff}h\n"
         "  "
         f"score={components['total']:.3f} "
@@ -1544,13 +1653,7 @@ def run_ondeck(
         for item in missing:
             if shown >= limit:
                 break
-            move = item.task
-            move_id = str(move.id) if move.id is not None else move.uuid[:8]
-            missing_fields_str = ",".join(item.missing)
-            project = move.project or "-"
-            print(
-                f"[{move_id}] {move.description}  project={project}  missing={missing_fields_str}"
-            )
+            print(format_missing_metadata_line(item))
             shown += 1
 
     updated = False
@@ -1635,5 +1738,7 @@ def run_ondeck(
 
     best = report.candidates[0].task
     best_id = str(best.id) if best.id is not None else best.uuid[:8]
-    print(f"\nNext move suggestion: {best_id} - {best.description}")
+    print(
+        f"\nNext move suggestion: {best_id} - {best.description}{started_marker(best)}"
+    )
     return 0

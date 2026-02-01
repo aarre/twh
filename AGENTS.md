@@ -41,6 +41,7 @@ Already implemented, among other requirements:
 * Dominance prompts use A/B/C choices with labels like `[A] Move ID 3: ...` to avoid numeric confusion with move IDs.
 * Dominance should never prompt for move pairs already related by dependencies (including when dependencies are stored as IDs), and prompts should show approximate progress (comparisons complete/remaining).
 * `twh ondeck` outputs a top-move list that includes move descriptions, annotations, and a short list of first-order dominance relations.
+* `twh ondeck` marks started moves as in progress in its output, using a green highlight for visibility.
 * Before any operation that could modify move descriptions (including writing UDAs that might be misconfigured), halt and ask for guidance. If a required UDA is missing and its absence could overwrite descriptions, stop and ask for guidance before proceeding.
 * `twh add` is an interactive flow that prompts for description, project, tags, due date, blocks, and metadata (imp/urg/opt_human/diff/mode), then runs dominance sorting.
 * `twh ondeck` ordering considers `Scheduled` and `Wait until`, prioritizing imminent/past times and otherwise preferring unscheduled moves ahead of future scheduled ones (using the later timestamp when both are set).

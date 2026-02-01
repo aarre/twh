@@ -78,7 +78,8 @@ the wizard to fill metadata (including blocked moves) and collect dominance
 ordering, then recommends the next move by scoring ready moves. If metadata and
 dominance are complete, it emits the report directly. The top-move list includes
 each move's description, annotations, and a short list of first-order dominance
-relations. Use `--mode editorial` (plus `--strict-mode` if desired) to bias
+relations. Started moves are labeled `[IN PROGRESS]` with a green highlight.
+Use `--mode editorial` (plus `--strict-mode` if desired) to bias
 recommendations to your current mode. You can pass Taskwarrior filter tokens
 after the command (for example `twh ondeck project:work.competitiveness -WAITING`)
 to limit the scope. The ondeck flow expects the `imp`, `urg`, `opt_human`,

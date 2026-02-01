@@ -157,6 +157,27 @@ def test_review_task_from_json_parses_schedule_fields():
 
 
 @pytest.mark.unit
+def test_review_task_from_json_parses_start():
+    """
+    Ensure start timestamps are parsed.
+
+    Returns
+    -------
+    None
+        This test asserts start parsing.
+    """
+    payload = {
+        "uuid": "u1",
+        "description": "Started move",
+        "start": "20240102T120000Z",
+    }
+
+    task = review.ReviewTask.from_json(payload)
+
+    assert task.start == datetime(2024, 1, 2, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.unit
 def test_review_task_from_json_parses_opt_auto():
     """
     Ensure opt_auto values are parsed for review tasks.
@@ -1139,6 +1160,140 @@ def test_format_candidate_output_includes_annotations_and_dominance():
     assert any("Move A" in line for line in lines)
     assert "  Annotation: Annotation one" in lines
     assert "  Dominates move ID 2: Move B" in lines
+
+
+@pytest.mark.parametrize(
+    ("start", "expected_marker"),
+    [
+        (None, ""),
+        (
+            datetime(2024, 1, 2, 12, 0, 0),
+            f" {review.colorize_in_progress(review.IN_PROGRESS_LABEL)}",
+        ),
+    ],
+)
+@pytest.mark.unit
+def test_started_marker(start, expected_marker):
+    """
+    Ensure started moves emit an in-progress marker.
+
+    Parameters
+    ----------
+    start : datetime | None
+        Start timestamp to set on the move.
+    expected_marker : str
+        Expected marker string.
+
+    Returns
+    -------
+    None
+        This test asserts start marker formatting.
+    """
+    task = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Move A",
+        project=None,
+        depends=[],
+        imp=1,
+        urg=1,
+        opt=1,
+        start=start,
+        dominates=[],
+        raw={},
+    )
+
+    assert review.started_marker(task) == expected_marker
+
+
+@pytest.mark.parametrize(
+    ("start", "expected_present"),
+    [
+        (None, False),
+        (datetime(2024, 1, 2, 12, 0, 0), True),
+    ],
+)
+@pytest.mark.unit
+def test_format_missing_metadata_line_marks_started(start, expected_present):
+    """
+    Ensure missing metadata lines flag started moves.
+
+    Parameters
+    ----------
+    start : datetime | None
+        Start timestamp to set on the move.
+    expected_present : bool
+        True when the in-progress marker should appear.
+
+    Returns
+    -------
+    None
+        This test asserts missing metadata formatting.
+    """
+    task = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Move A",
+        project="work",
+        depends=[],
+        imp=None,
+        urg=1,
+        opt=1,
+        start=start,
+        dominates=[],
+        raw={},
+    )
+    item = review.MissingMetadata(task=task, missing=("imp",), is_ready=True)
+
+    line = review.format_missing_metadata_line(item)
+
+    assert ("[IN PROGRESS]" in line) is expected_present
+
+
+@pytest.mark.parametrize(
+    ("start", "expected_present"),
+    [
+        (None, False),
+        (datetime(2024, 1, 2, 12, 0, 0), True),
+    ],
+)
+@pytest.mark.unit
+def test_format_task_rationale_marks_started(start, expected_present):
+    """
+    Ensure candidate output flags started moves.
+
+    Parameters
+    ----------
+    start : datetime | None
+        Start timestamp to set on the move.
+    expected_present : bool
+        True when the in-progress marker should appear.
+
+    Returns
+    -------
+    None
+        This test asserts candidate formatting.
+    """
+    task = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Move A",
+        project="work",
+        depends=[],
+        imp=1,
+        urg=1,
+        opt=1,
+        diff=1.0,
+        mode="analysis",
+        start=start,
+        dominates=[],
+        raw={},
+    )
+    _score, components = review.score_task(task, None)
+
+    line = review.format_task_rationale(task, components).splitlines()[0]
+
+    assert ("[IN PROGRESS]" in line) is expected_present
 
 
 @pytest.mark.unit
