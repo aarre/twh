@@ -2613,6 +2613,42 @@ def build_app():
             raise typer.Exit(code=1)
         raise typer.Exit(code=exit_code)
 
+    @app.command("diagnose")
+    def diagnose_cmd(
+        selector: Optional[str] = typer.Argument(
+            None,
+            help="Move ID or UUID prefix to diagnose.",
+        ),
+        mode: Optional[str] = typer.Option(
+            None,
+            "--mode",
+            help="Current mode context (analysis/editorial/etc).",
+        ),
+        strict_mode: bool = typer.Option(
+            False,
+            "--strict-mode",
+            help="Only keep moves with matching modes.",
+        ),
+        include_dominated: bool = typer.Option(
+            True,
+            "--include-dominated",
+            help="Include moves dominated by other moves.",
+        ),
+    ):
+        from . import diagnose as diagnose_module
+
+        try:
+            exit_code = diagnose_module.run_diagnose(
+                selector=selector,
+                mode=mode,
+                strict_mode=strict_mode,
+                include_dominated=include_dominated,
+            )
+        except FileNotFoundError:
+            print("Error: `task` command not found.", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
     @app.command(
         "option",
         context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
@@ -2707,6 +2743,7 @@ TWH_COMMANDS = {
     "graph",
     "simple",
     "ondeck",
+    "diagnose",
     "option",
     "dominance",
     "calibrate",

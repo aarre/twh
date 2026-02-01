@@ -11,6 +11,7 @@ twh stop
 twh time
 twh dominance
 twh ondeck
+twh diagnose
 twh option
 twh calibrate
 twh graph
@@ -100,6 +101,18 @@ governs the ordering.
 If a required UDA is missing, `twh ondeck` and `twh dominance` will stop before
 writing updates to avoid modifying move descriptions.
 
+`twh diagnose` runs a short wizard when a move feels stuck. By default it targets
+the current top move based on the same ordering used by `twh ondeck`, asks for a
+friction type and what you are lacking, and offers a tiny helper move that keeps
+the top move warm by launching the full `twh add` wizard. When the add wizard
+prompts for Blocks, enter the stuck move ID to make it depend on the helper.
+Diagnose can also prompt to rate dimension values (energy/attention/emotion/
+interruptible/mechanical), and it suggests an alternative move that is strictly
+easier along the lacking dimension (energy/attention/emotion/time) using those
+values. If the dimension UDAs are missing, `twh diagnose` stops and prints the
+required `~/.taskrc` entries before writing any dimension values to avoid
+modifying move descriptions.
+
 `twh option` estimates option value from the dependency graph and metadata,
 calibrates weights using your manual `opt_human` ratings (falling back to legacy
 `opt` values), and prints predicted `opt_auto` values. If a calibration file
@@ -156,6 +169,18 @@ uda.kind.type=string
 uda.kind.label=Kind
 uda.estimate_minutes.type=numeric
 uda.estimate_minutes.label=Est(min)
+
+# Diagnose dimensions (0-10 scales unless noted)
+uda.energy.type=numeric
+uda.energy.label=Energy (0-10)
+uda.attention.type=numeric
+uda.attention.label=Attention (0-10)
+uda.emotion.type=numeric
+uda.emotion.label=Emotion (0-10)
+uda.interruptible.type=numeric
+uda.interruptible.label=Interruptible (0-1)
+uda.mechanical.type=numeric
+uda.mechanical.label=Mechanical (0-1)
 ```
 
 `twh graph` renders a Graphviz-based dependency graph to `/tmp/tasks-graph.svg`
