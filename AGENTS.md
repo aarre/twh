@@ -48,11 +48,12 @@ Already implemented, among other requirements:
 * `twh calibrate` runs interactive pairwise precedence calibration and option value calibration, writes weights to `~/.config/twh/calibration.toml` (override with `TWH_CALIBRATION_PATH`), and can apply updated `opt_auto` values; `twh ondeck` and `twh option` use stored calibration weights when present.
 * `twh` enforces case-insensitive Taskwarrior searches for all selection-based commands and delegated task invocations.
 * `twh ondeck` precedence scoring incorporates `enablement`, `blocker_relief`, `estimate_hours` (fallback to `diff`), and dependency centrality with a strategic/operational/explore mode multiplier.
+* `twh start`/`twh stop` mirror Taskwarrior start/stop while logging time records to `~/.task/twh-time.db`, enforcing a single active move by stopping other started moves, and supporting reports/editing via `twh time`.
 * `twh` enables readline-style line editing for interactive prompts (via `readline`/`pyreadline3`) so arrow keys and common editing keys work in terminals like Tabby on WSL.
 
 ## Project notes
 
-- `twh` delegates unknown commands (including no-arg invocation) to Taskwarrior; `list`, `reverse`, `tree`, `graph`, `simple`, `ondeck`, and `dominance` are handled internally.
+- `twh` delegates unknown commands (including no-arg invocation) to Taskwarrior; `list`, `reverse`, `tree`, `graph`, `simple`, `ondeck`, `start`, `stop`, `time`, and `dominance` are handled internally.
 - `twh add` uses an interactive prompt sequence and still augments new moves with the active Taskwarrior context's `project:` or tag filters (from `context.<name>`), without overriding explicit `project:` or `+tag` inputs.
 - Running tests directly from the repo root needs `PYTHONPATH=src` (or an editable install) so `import twh` resolves the package.
 - Prefer Python 3.12 for local virtual environments; `uv venv` defaults to newer Python versions (for example 3.14) and may create a venv without pip, so use `python3.12 -m venv .venv` or `uv venv --python=python3.12`, and if pip is missing run `python -m ensurepip --upgrade`.
@@ -68,6 +69,7 @@ Already implemented, among other requirements:
 - `twh ondeck` inspects pending moves for missing `imp`, `urg`, `opt_human` (legacy `opt` accepted), `diff`, `mode`, and dominance ordering (ties persisted via `dominated_by`); when anything is missing it runs the wizard for all moves in scope (including blocked), auto-runs `twh option --apply` after updates, and recommends the next move using dominance tiers before the scoring model; mode filters (`--mode`, `--strict-mode`) and dominance UDAs influence candidate selection, extra Taskwarrior filter tokens after `twh ondeck` scope the set, and filtered runs still apply the wizard even for blocked moves in scope.
 - `twh option` calibrates option value weights from manual `opt_human` ratings (falling back to `opt`), predicts `opt_auto` values using dependency structure and metadata, and `--apply` also copies legacy `opt` values into `opt_human` when missing.
 - `twh calibrate` stores precedence/option calibration weights in `~/.config/twh/calibration.toml`, uses pairwise A/B choices to tune precedence weights, and can apply opt_auto updates after calibrating.
+- `twh start`/`twh stop` log time entries (uuid/description/project/tags/mode/start/end) to `~/.task/twh-time.db`, auto-stop other active moves on start, and `twh time` reports by task/project/tag/mode with day/week/month/year/range bucketing plus date filtering and record edits.
 - On WSL, `open_in_browser` converts paths with `wslpath -w`, copies UNC (Linux filesystem) paths into the Windows TEMP directory, and launches Windows Edge directly via `msedge.exe` (falling back to `cmd.exe /c start microsoft-edge:<file-url>` when Edge cannot be located).
 - Do not modify `CHANGELOG.md` directly; it is managed via commitizen and manual edits interfere with the workflow.
 

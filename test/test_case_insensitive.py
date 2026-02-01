@@ -9,6 +9,7 @@ import pytest
 import twh
 import twh.option_value as option_value
 import twh.review as review
+import twh.time_log as time_log
 
 
 @pytest.mark.parametrize(
@@ -17,6 +18,7 @@ import twh.review as review
         twh,
         review,
         option_value,
+        time_log,
     ],
 )
 @pytest.mark.unit

@@ -2315,6 +2315,179 @@ def build_app():
         tree_alias(reverse=reverse)
 
     @app.command(
+        "start",
+        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    )
+    def start_cmd(ctx: typer.Context):
+        from . import time_log as time_module
+
+        try:
+            exit_code = time_module.run_start(list(ctx.args))
+        except FileNotFoundError:
+            print("Error: `task` command not found.", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
+    @app.command(
+        "stop",
+        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    )
+    def stop_cmd(ctx: typer.Context):
+        from . import time_log as time_module
+
+        try:
+            exit_code = time_module.run_stop(list(ctx.args))
+        except FileNotFoundError:
+            print("Error: `task` command not found.", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
+    time_app = typer.Typer(help="Report or edit time logs.")
+
+    @time_app.callback(invoke_without_command=True)
+    def time_callback(
+        ctx: typer.Context,
+        by: str = typer.Option(
+            "project",
+            "--by",
+            help="Group by task/project/tag/mode/total.",
+        ),
+        period: str = typer.Option(
+            "week",
+            "--period",
+            help="Period bucket: day/week/month/year/range.",
+        ),
+        start: Optional[str] = typer.Option(
+            None,
+            "--from",
+            help="Filter start date/time (YYYY-MM-DD or ISO).",
+        ),
+        end: Optional[str] = typer.Option(
+            None,
+            "--to",
+            help="Filter end date/time (YYYY-MM-DD or ISO).",
+        ),
+    ):
+        if ctx.invoked_subcommand is not None:
+            return
+        from . import time_log as time_module
+
+        try:
+            exit_code = time_module.run_time_report(
+                group_by=by,
+                period=period,
+                range_start=start,
+                range_end=end,
+            )
+        except ValueError as exc:
+            print(f"twh: time report failed: {exc}", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
+    @time_app.command("report")
+    def time_report_cmd(
+        by: str = typer.Option(
+            "project",
+            "--by",
+            help="Group by task/project/tag/mode/total.",
+        ),
+        period: str = typer.Option(
+            "week",
+            "--period",
+            help="Period bucket: day/week/month/year/range.",
+        ),
+        start: Optional[str] = typer.Option(
+            None,
+            "--from",
+            help="Filter start date/time (YYYY-MM-DD or ISO).",
+        ),
+        end: Optional[str] = typer.Option(
+            None,
+            "--to",
+            help="Filter end date/time (YYYY-MM-DD or ISO).",
+        ),
+    ):
+        from . import time_log as time_module
+
+        try:
+            exit_code = time_module.run_time_report(
+                group_by=by,
+                period=period,
+                range_start=start,
+                range_end=end,
+            )
+        except ValueError as exc:
+            print(f"twh: time report failed: {exc}", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
+    @time_app.command("entries")
+    def time_entries_cmd(
+        start: Optional[str] = typer.Option(
+            None,
+            "--from",
+            help="Filter start date/time (YYYY-MM-DD or ISO).",
+        ),
+        end: Optional[str] = typer.Option(
+            None,
+            "--to",
+            help="Filter end date/time (YYYY-MM-DD or ISO).",
+        ),
+        limit: int = typer.Option(
+            50,
+            "--limit",
+            help="Maximum entries to list.",
+        ),
+    ):
+        from . import time_log as time_module
+
+        try:
+            exit_code = time_module.run_time_entries(
+                range_start=start,
+                range_end=end,
+                limit=limit,
+            )
+        except ValueError as exc:
+            print(f"twh: time entries failed: {exc}", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
+    @time_app.command("edit")
+    def time_edit_cmd(
+        entry_id: int = typer.Argument(..., help="Entry id to edit."),
+        start: Optional[str] = typer.Option(
+            None,
+            "--start",
+            help="New start date/time.",
+        ),
+        end: Optional[str] = typer.Option(
+            None,
+            "--end",
+            help="New end date/time.",
+        ),
+        duration: Optional[str] = typer.Option(
+            None,
+            "--duration",
+            help="New duration (e.g., 1.5h, 90m).",
+        ),
+    ):
+        from . import time_log as time_module
+
+        try:
+            exit_code = time_module.run_time_edit(
+                entry_id=entry_id,
+                start=start,
+                end=end,
+                duration=duration,
+            )
+        except ValueError as exc:
+            print(f"twh: time edit failed: {exc}", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
+    app.add_typer(time_app, name="time")
+
+    @app.command(
         "simple",
         context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
     )
@@ -2537,6 +2710,9 @@ TWH_COMMANDS = {
     "option",
     "dominance",
     "calibrate",
+    "start",
+    "stop",
+    "time",
 }
 TWH_HELP_ARGS = {"-h", "--help", "--install-completion", "--show-completion"}
 

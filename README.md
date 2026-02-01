@@ -6,6 +6,9 @@ Hierarchical Taskwarrior move views and Graphviz dependency graphs.
 twh list
 twh list reverse
 twh simple
+twh start
+twh stop
+twh time
 twh dominance
 twh ondeck
 twh option
@@ -37,6 +40,22 @@ persists until `twh context none` clears the context.
 prompts for blocked move IDs. The relationship is stored in Taskwarrior's
 `depends` field; no UDAs are required. For example, `twh 31 modify blocks 32`
 makes move 32 depend on move 31.
+
+`twh start` and `twh stop` behave like `task start` and `task stop` but also
+write time logs under `~/.task/twh-time.db`. Starting a move stops any other
+started moves first, so only one move can be active at a time. Each log entry
+stores the move UUID, description, project, tags, mode, and start/end times.
+Use `twh time` for reports, `twh time entries` to list raw entries, and
+`twh time edit <id>` to adjust start/end/durations after the fact. Reports can
+group by task/project/tag/mode/total and by day/week/month/year/range, with
+optional date filters. For example:
+
+```bash
+twh time --by project --period month --from 2024-01-01 --to 2024-03-31
+twh time --by tag --period week --from 2024-02-01
+twh time entries --from 2024-02-01 --to 2024-02-07
+twh time edit 42 --duration 1.5h
+```
 
 `twh simple` wraps Taskwarrior reports and shows annotation counts instead of
 inline annotation text. On first run it creates `report.simple` by copying the
