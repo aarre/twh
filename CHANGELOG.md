@@ -1,3 +1,13 @@
+## 0.15.0 (2026-02-01)
+
+### Features
+
+- **time**: add new time logging feature
+
+### Fixes
+
+- **time**: color in progess tag for better visibility
+
 ## 0.14.0 (2026-01-31)
 
 ### Features
