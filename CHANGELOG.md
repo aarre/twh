@@ -1,3 +1,9 @@
+## 0.16.0 (2026-02-01)
+
+### Features
+
+- **diagnose**: add `twh diagnose` command to help user when stuck
+
 ## 0.15.0 (2026-02-01)
 
 ### Features
