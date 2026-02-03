@@ -170,10 +170,10 @@ type = "input"
 name = "subject"
 message = "Write a short and imperative summary of the code changes"
 
-[[tool.commitizen.customize.questions]]
-type = "input"
-name = "body"
-message = "Provide additional contextual information about the code changes (press enter to skip)"
+#[[tool.commitizen.customize.questions]]
+#type = "input"
+#name = "body"
+#message = "Provide additional contextual information about the code changes (press enter to skip)"
 
 [[tool.commitizen.customize.questions]]
 type = "confirm"
