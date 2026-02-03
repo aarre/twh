@@ -10,7 +10,7 @@ import twh.dominance as dominance
 
 
 @pytest.mark.unit
-def test_prompt_add_input_orders_prompts():
+def test_prompt_add_input_orders_prompts(monkeypatch, tmp_path):
     """
     Ensure the interactive add prompts follow the required order.
 
@@ -19,6 +19,10 @@ def test_prompt_add_input_orders_prompts():
     None
         This test asserts prompt ordering and parsed values.
     """
+    import twh.modes as modes
+
+    monkeypatch.setenv(modes.MODE_ENV_VAR, str(tmp_path / "modes.json"))
+    mode_prompt = modes.format_mode_prompt(modes.load_known_modes())
     prompts = []
     responses = iter(
         [
@@ -47,12 +51,12 @@ def test_prompt_add_input_orders_prompts():
         "Tags (comma-separated): ",
         "Due date: ",
         "Blocks (move IDs blocked by this move, comma-separated): ",
-        "  Importance horizon - how long will you remember whether this move was done? (days): ",
-        "  Urgency horizon - how long before acting loses value? (days): ",
-        "  Option value - to what extent does doing this move preserve, unlock, or multiply future moves? (0-10): ",
-        "  Difficulty, i.e., estimated effort (hours): ",
-        "  Mode (e.g., analysis/research/writing/editorial/illustration/programming/teaching/chore/errand): ",
-    ]
+            "  Importance horizon - how long will you remember whether this move was done? (days): ",
+            "  Urgency horizon - how long before acting loses value? (days): ",
+            "  Option value - to what extent does doing this move preserve, unlock, or multiply future moves? (0-10): ",
+            "  Difficulty, i.e., estimated effort (hours): ",
+            mode_prompt,
+        ]
     assert add_input.description == "Write notes"
     assert add_input.project == "work"
     assert add_input.tags == ["alpha", "beta"]

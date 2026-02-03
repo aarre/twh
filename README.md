@@ -83,6 +83,11 @@ one-line summary per move: ID, optional `[IN PROGRESS]` marker, and description,
 so you can show more candidates by default (25; use `--top` to override). Started
 moves are labeled `[IN PROGRESS]` with a green highlight. Use `--mode editorial`
 (plus `--strict-mode` if desired) to bias recommendations to your current mode.
+When the wizard prompts for a mode value, twh keeps a persistent list of known
+modes (stored in `~/.config/twh/modes.json`, override with `TWH_MODES_PATH`) and
+offers inline autocompletion; new modes are immediately added to the list,
+shown in subsequent prompts, and appended to `uda.mode.values` when that
+Taskwarrior setting is present.
 You can pass Taskwarrior filter tokens after the command (for example
 `twh ondeck project:work.competitiveness -WAITING`) to limit the scope. The
 ondeck flow expects the `imp`, `urg`, `opt_human`, `diff`, `mode`, `dominates`,

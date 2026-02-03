@@ -19,6 +19,7 @@ from .taskwarrior import (
     parse_dependencies,
     read_tasks_from_json,
 )
+from . import modes as modes_module
 from . import calibration
 
 if TYPE_CHECKING:
@@ -1523,6 +1524,7 @@ def interactive_fill_missing(
         Fields to update.
     """
     updates: Dict[str, str] = {}
+    known_modes = modes_module.load_known_modes()
     print("\nFill missing fields for this move (press Enter to skip)")
     if task.imp is None:
         value = input_func(
@@ -1547,11 +1549,17 @@ def interactive_fill_missing(
         if value:
             updates["diff"] = value
     if not task.mode:
-        value = input_func(
-            "  Mode (e.g., analysis/research/writing/editorial/illustration/programming/teaching/chore/errand): "
+        prompt = modes_module.format_mode_prompt(known_modes)
+        value = modes_module.prompt_mode_value(
+            prompt,
+            known_modes,
+            input_func=input_func,
         ).strip()
         if value:
-            updates["mode"] = value
+            normalized = modes_module.normalize_mode_value(value)
+            updates["mode"] = normalized
+            known_modes = modes_module.register_mode(normalized, modes=known_modes)
+            modes_module.ensure_taskwarrior_mode_value(normalized)
     return updates
 
 
