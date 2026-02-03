@@ -189,10 +189,10 @@ def test_run_interactive_add_runs_add_blocks_and_dominance(monkeypatch):
             return subprocess.CompletedProcess(args, 0, stdout=payload, stderr="")
         return subprocess.CompletedProcess(args, 0, stdout="Modified 1 task.\n", stderr="")
 
-    dominance_calls = []
+    dominance_calls: list[dict] = []
 
     def fake_run_dominance(*_args, **_kwargs):
-        dominance_calls.append(True)
+        dominance_calls.append(_kwargs)
         return 0
 
     monkeypatch.setattr(twh, "run_task_command", fake_run_task_command)
@@ -223,7 +223,84 @@ def test_run_interactive_add_runs_add_blocks_and_dominance(monkeypatch):
         (["33", "export"], True),
         (["uuid-33", "modify", "depends:uuid-45"], True),
     ]
-    assert dominance_calls == [True]
+    assert dominance_calls
+    assert dominance_calls[0]["quiet"] is True
+
+
+@pytest.mark.unit
+def test_run_interactive_add_suppresses_taskwarrior_noise(monkeypatch, capsys):
+    """
+    Ensure Taskwarrior modify noise is suppressed during interactive add.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture for patching Taskwarrior helpers.
+    capsys : pytest.CaptureFixture[str]
+        Fixture for capturing output.
+
+    Returns
+    -------
+    None
+        This test asserts add output filtering.
+    """
+    prompts = iter(
+        [
+            "Plan work",
+            "",
+            "",
+            "",
+            "32",
+            "7",
+            "3",
+            "5",
+            "1.5",
+            "analysis",
+        ]
+    )
+
+    def fake_input(prompt):
+        return next(prompts)
+
+    def fake_run_task_command(args, capture_output=False, **_kwargs):
+        if args[0] == "add":
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                stdout="Created task 45.\n",
+                stderr="",
+            )
+        if args[0] == "45" and args[1] == "export":
+            payload = '[{"uuid":"uuid-45","id":45}]'
+            return subprocess.CompletedProcess(args, 0, stdout=payload, stderr="")
+        if args[0] == "32" and args[1] == "export":
+            payload = '[{"uuid":"uuid-32","id":32}]'
+            return subprocess.CompletedProcess(args, 0, stdout=payload, stderr="")
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            stdout=(
+                "Modifying task 32 'Example'.\n"
+                "Modified 1 task.\n"
+                "Project 'work' is 0% complete (1 task remaining).\n"
+            ),
+            stderr="Project 'work' is 0% complete (1 task remaining).\n",
+        )
+
+    monkeypatch.setattr(twh, "run_task_command", fake_run_task_command)
+    monkeypatch.setattr(twh, "missing_udas", lambda _fields: [])
+    monkeypatch.setattr(twh, "get_active_context_name", lambda: None)
+    monkeypatch.setattr(twh, "get_context_definition", lambda _name: None)
+    monkeypatch.setattr(dominance, "run_dominance", lambda *_a, **_k: 0)
+
+    exit_code = twh.run_interactive_add([], input_func=fake_input)
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Created task 45." in captured.out
+    assert "Modifying task" not in captured.out
+    assert "Modified 1 task." not in captured.out
+    assert "Project 'work'" not in captured.out
 
 
 @pytest.mark.unit

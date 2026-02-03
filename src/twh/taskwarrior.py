@@ -134,7 +134,7 @@ def parse_dependencies(dep_field: Optional[str]) -> List[str]:
 
 def filter_modified_zero_lines(stdout: Optional[str]) -> List[str]:
     """
-    Filter "Modified 0 tasks." lines from Taskwarrior output.
+    Filter noisy Taskwarrior output lines.
 
     Parameters
     ----------
@@ -152,12 +152,17 @@ def filter_modified_zero_lines(stdout: Optional[str]) -> List[str]:
     []
     >>> filter_modified_zero_lines("Modified 1 task.\\n")
     ['Modified 1 task.']
+    >>> filter_modified_zero_lines("Project 'work' is 0% complete (1 task remaining).\\n")
+    []
     """
     if not stdout:
         return []
     lines = []
     for line in stdout.splitlines():
-        if line.strip() == "Modified 0 tasks.":
+        stripped = line.strip()
+        if stripped == "Modified 0 tasks.":
+            continue
+        if stripped.startswith("Project '") and " complete (" in stripped:
             continue
         lines.append(line)
     return lines

@@ -24,6 +24,12 @@ def test_filter_modified_zero_lines():
     assert taskwarrior.filter_modified_zero_lines("Modified 1 task.\n") == [
         "Modified 1 task."
     ]
+    assert (
+        taskwarrior.filter_modified_zero_lines(
+            "Project 'work' is 0% complete (1 task remaining).\n"
+        )
+        == []
+    )
     assert taskwarrior.filter_modified_zero_lines(
         "Warning: nope\nModified 0 tasks.\nExtra"
     ) == ["Warning: nope", "Extra"]

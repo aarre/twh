@@ -596,6 +596,7 @@ def apply_blocks_to_targets(
     created_uuid: str,
     blocks: Iterable[str],
     runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
+    quiet: bool = False,
 ) -> int:
     """
     Apply dependency updates for blocks targets.
@@ -608,6 +609,8 @@ def apply_blocks_to_targets(
         IDs of blocked moves.
     runner : Callable[..., subprocess.CompletedProcess], optional
         Runner for Taskwarrior commands (default: run_task_command).
+    quiet : bool, optional
+        Suppress Taskwarrior stdout when True (default: False).
 
     Returns
     -------
@@ -617,7 +620,7 @@ def apply_blocks_to_targets(
     if runner is None:
         runner = run_task_command
 
-    return apply_dependency_updates(blocks, [created_uuid], runner=runner)
+    return apply_dependency_updates(blocks, [created_uuid], runner=runner, quiet=quiet)
 
 
 def run_interactive_add(
@@ -663,9 +666,11 @@ def run_interactive_add(
 
     add_result = run_task_command(add_args, capture_output=True)
     if add_result.stdout:
-        print(add_result.stdout, end="")
+        for line in filter_modified_zero_lines(add_result.stdout):
+            print(line)
     if add_result.stderr:
-        print(add_result.stderr, end="", file=sys.stderr)
+        for line in filter_modified_zero_lines(add_result.stderr):
+            print(line, file=sys.stderr)
     if add_result.returncode != 0:
         return add_result.returncode
 
@@ -679,7 +684,11 @@ def run_interactive_add(
         if not created_uuid:
             print("twh: unable to resolve created move uuid for blocks.", file=sys.stderr)
             return 1
-        exit_code = apply_blocks_to_targets(created_uuid, add_input.blocks)
+        exit_code = apply_blocks_to_targets(
+            created_uuid,
+            add_input.blocks,
+            quiet=True,
+        )
 
     missing_dominance = missing_udas(["dominates", "dominated_by"])
     if missing_dominance:
@@ -693,7 +702,10 @@ def run_interactive_add(
 
     from . import dominance as dominance_module
 
-    dominance_exit = dominance_module.run_dominance(input_func=input_func)
+    dominance_exit = dominance_module.run_dominance(
+        input_func=input_func,
+        quiet=True,
+    )
     if exit_code == 0:
         exit_code = dominance_exit
     return exit_code
@@ -1039,7 +1051,8 @@ def configure_report(
         )
         if result.returncode != 0:
             if result.stderr:
-                print(result.stderr, end="", file=sys.stderr)
+                for line in filter_modified_zero_lines(result.stderr):
+                    print(line, file=sys.stderr)
             return False
     return True
 
@@ -1398,6 +1411,7 @@ def apply_dependency_updates(
     targets: Iterable[str],
     additions: Iterable[str],
     runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
+    quiet: bool = False,
 ) -> int:
     """
     Apply dependency updates to target moves.
@@ -1410,6 +1424,8 @@ def apply_dependency_updates(
         Dependency identifiers to add.
     runner : Callable[..., subprocess.CompletedProcess], optional
         Runner for task commands (default: run_task_command).
+    quiet : bool, optional
+        Suppress Taskwarrior stdout when True (default: False).
 
     Returns
     -------
@@ -1453,10 +1469,12 @@ def apply_dependency_updates(
                 [str(uuid), "modify", f"depends:{depends_value}"],
                 capture_output=True,
             )
-            for line in filter_modified_zero_lines(result.stdout):
-                print(line)
+            if not quiet:
+                for line in filter_modified_zero_lines(result.stdout):
+                    print(line)
             if result.stderr:
-                print(result.stderr, end="", file=sys.stderr)
+                for line in filter_modified_zero_lines(result.stderr):
+                    print(line, file=sys.stderr)
             if result.returncode != 0:
                 exit_code = result.returncode
     return exit_code
@@ -1494,9 +1512,11 @@ def apply_blocks_relationship(
         add_result = run_task_command(cleaned_args, capture_output=True)
         # Preserve Taskwarrior output when capture is required for parsing.
         if add_result.stdout:
-            print(add_result.stdout, end="")
+            for line in filter_modified_zero_lines(add_result.stdout):
+                print(line)
         if add_result.stderr:
-            print(add_result.stderr, end="", file=sys.stderr)
+            for line in filter_modified_zero_lines(add_result.stderr):
+                print(line, file=sys.stderr)
         if add_result.returncode != 0:
             return add_result.returncode
 

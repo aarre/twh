@@ -440,6 +440,7 @@ def apply_dominance_updates(
     updates: Dict[str, DominanceUpdate],
     runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
     get_setting: Optional[Callable[[str], Optional[str]]] = None,
+    quiet: bool = False,
 ) -> None:
     """
     Apply dominance updates to Taskwarrior.
@@ -452,6 +453,8 @@ def apply_dominance_updates(
         Runner to execute Taskwarrior commands (args exclude ``task``).
     get_setting : Optional[Callable[[str], Optional[str]]]
         Getter for Taskwarrior settings.
+    quiet : bool, optional
+        Suppress Taskwarrior stdout when True (default: False).
     """
     if get_setting is None:
         from .taskwarrior import get_taskwarrior_setting
@@ -483,10 +486,12 @@ def apply_dominance_updates(
             text=True,
             check=False,
         )
-        for line in filter_modified_zero_lines(result.stdout):
-            print(line)
+        if not quiet:
+            for line in filter_modified_zero_lines(result.stdout):
+                print(line)
         if result.stderr:
-            print(result.stderr, end="", file=sys.stderr)
+            for line in filter_modified_zero_lines(result.stderr):
+                print(line, file=sys.stderr)
 
 
 def build_tiers_from_state(
@@ -545,19 +550,36 @@ def build_tiers_from_state(
 def run_dominance(
     filters: Optional[Sequence[str]] = None,
     input_func: Callable[[str], str] = input,
+    quiet: bool = False,
 ) -> int:
     """
     Run the dominance collection workflow for pending moves.
+
+    Parameters
+    ----------
+    filters : Optional[Sequence[str]]
+        Taskwarrior filter tokens to scope the move set.
+    input_func : Callable[[str], str], optional
+        Input function for prompts (default: input).
+    quiet : bool, optional
+        Suppress informational output when True (default: False).
+
+    Returns
+    -------
+    int
+        Exit code.
     """
     pending = load_pending_tasks(filters=filters)
     if not pending:
-        print("No pending moves found.")
+        if not quiet:
+            print("No pending moves found.")
         return 0
 
     state = build_dominance_state(pending)
     missing = dominance_missing_uuids(pending, state)
     if not missing:
-        print("Dominance is already complete for these moves.")
+        if not quiet:
+            print("Dominance is already complete for these moves.")
         return 0
 
     tiers = sort_into_tiers(
@@ -567,9 +589,10 @@ def run_dominance(
     )
     updates = build_dominance_updates(tiers)
     try:
-        apply_dominance_updates(updates)
+        apply_dominance_updates(updates, quiet=quiet)
     except RuntimeError as exc:
-        print(f"twh: dominance failed: {exc}")
+        print(f"twh: dominance failed: {exc}", file=sys.stderr)
         return 1
-    print(f"Dominance updated for {len(pending)} moves.")
+    if not quiet:
+        print(f"Dominance updated for {len(pending)} moves.")
     return 0

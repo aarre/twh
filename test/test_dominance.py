@@ -315,6 +315,83 @@ def test_apply_dominance_updates_suppresses_modified_zero(monkeypatch, capsys):
 
 
 @pytest.mark.unit
+def test_apply_dominance_updates_quiet_suppresses_output(capsys):
+    """
+    Ensure quiet mode suppresses Taskwarrior stdout.
+
+    Returns
+    -------
+    None
+        This test asserts quiet output handling.
+    """
+    updates = {
+        "a": dominance.DominanceUpdate(dominates=["b"], dominated_by=[]),
+    }
+
+    def fake_runner(args, capture_output=False, **_kwargs):
+        assert capture_output is True
+        return dominance.subprocess.CompletedProcess(
+            args,
+            0,
+            stdout=(
+                "Modifying task 1 'Example'.\n"
+                "Modified 1 task.\n"
+                "Project 'work' is 0% complete (1 task remaining).\n"
+            ),
+            stderr="",
+        )
+
+    dominance.apply_dominance_updates(
+        updates,
+        runner=fake_runner,
+        get_setting=lambda _key: "string",
+        quiet=True,
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+
+
+@pytest.mark.unit
+def test_run_dominance_quiet_suppresses_status(monkeypatch, capsys):
+    """
+    Ensure quiet mode suppresses dominance status output.
+
+    Returns
+    -------
+    None
+        This test asserts quiet run_dominance output handling.
+    """
+    move = make_move("a")
+
+    monkeypatch.setattr(dominance, "load_pending_tasks", lambda filters=None: [move])
+    monkeypatch.setattr(
+        dominance,
+        "dominance_missing_uuids",
+        lambda _tasks, _state: {"a"},
+    )
+    monkeypatch.setattr(
+        dominance,
+        "sort_into_tiers",
+        lambda _pending, _state, chooser: [[move]],
+    )
+    monkeypatch.setattr(
+        dominance,
+        "build_dominance_updates",
+        lambda _tiers: {},
+    )
+    monkeypatch.setattr(
+        dominance,
+        "apply_dominance_updates",
+        lambda *_args, **_kwargs: None,
+    )
+
+    exit_code = dominance.run_dominance(quiet=True)
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+@pytest.mark.unit
 def test_apply_dominance_updates_requires_udas(tmp_path, monkeypatch):
     """
     Ensure missing dominance UDAs abort updates.
