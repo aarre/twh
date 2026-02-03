@@ -11,6 +11,7 @@ twh stop
 twh time
 twh dominance
 twh ondeck
+twh defer
 twh diagnose
 twh option
 twh calibrate
@@ -100,6 +101,15 @@ times are ranked ahead of later ones; when both are set, the later timestamp
 governs the ordering.
 If a required UDA is missing, `twh ondeck` and `twh dominance` will stop before
 writing updates to avoid modifying move descriptions.
+
+`twh defer` targets the current top move from the same ordering used by
+`twh ondeck`. It prints a summary of that move, then prompts `Defer for how long
+(m/h/d/w)?`. Enter a number and unit (for example `15 m`, `2 hours`, or `1 day`).
+The move's `start` field is set to the current time plus the interval, and an
+annotation like `2026-02-02 18:45 -- Deferred for 1 day to 2026-02-03 18:45.` is
+added. `twh defer` accepts the same mode flags as ondeck (`--mode`,
+`--strict-mode`, `--include-dominated`) plus Taskwarrior filter tokens after the
+command to scope the candidate set.
 
 `twh diagnose` runs a short wizard when a move feels stuck. By default it targets
 the current top move based on the same ordering used by `twh ondeck`, asks for a

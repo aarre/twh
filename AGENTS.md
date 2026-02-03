@@ -52,10 +52,11 @@ Already implemented, among other requirements:
 * `twh ondeck` precedence scoring incorporates `enablement`, `blocker_relief`, `estimate_hours` (fallback to `diff`), and dependency centrality with a strategic/operational/explore mode multiplier.
 * `twh start`/`twh stop` mirror Taskwarrior start/stop while logging time records to `~/.task/twh-time.db`, enforcing a single active move by stopping other started moves, and supporting reports/editing via `twh time`.
 * `twh` enables readline-style line editing for interactive prompts (via `readline`/`pyreadline3`) so arrow keys and common editing keys work in terminals like Tabby on WSL.
+* `twh defer` prints a summary of the top move from the ondeck ordering, prompts for a defer interval (number + m/h/d/w or minutes/hours/days/weeks), sets `start` to now plus the interval, and annotates the move with the deferral timestamps.
 
 ## Project notes
 
-- `twh` delegates unknown commands (including no-arg invocation) to Taskwarrior; `list`, `reverse`, `tree`, `graph`, `simple`, `ondeck`, `start`, `stop`, `time`, and `dominance` are handled internally.
+- `twh` delegates unknown commands (including no-arg invocation) to Taskwarrior; `list`, `reverse`, `tree`, `graph`, `simple`, `ondeck`, `defer`, `diagnose`, `option`, `calibrate`, `start`, `stop`, `time`, and `dominance` are handled internally.
 - `twh add` uses an interactive prompt sequence and still augments new moves with the active Taskwarrior context's `project:` or tag filters (from `context.<name>`), without overriding explicit `project:` or `+tag` inputs.
 - Running tests directly from the repo root needs `PYTHONPATH=src` (or an editable install) so `import twh` resolves the package.
 - Prefer Python 3.12 for local virtual environments; `uv venv` defaults to newer Python versions (for example 3.14) and may create a venv without pip, so use `python3.12 -m venv .venv` or `uv venv --python=python3.12`, and if pip is missing run `python -m ensurepip --upgrade`.
