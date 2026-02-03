@@ -1,3 +1,14 @@
+## 0.17.0 (2026-02-03)
+
+### Features
+
+- **ondeck**: simplify ondeck output to one line per move
+- **defer**: add `twh defer` command
+
+### Fixes
+
+- **ondeck**: exclude future-start moves from ondeck report but include in missing-metadata wizard
+
 ## 0.16.0 (2026-02-01)
 
 ### Features
