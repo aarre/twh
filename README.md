@@ -78,18 +78,19 @@ so the same pair will not be prompted again.
 and missing dominance ordering. If anything is missing, it walks you through
 the wizard to fill metadata (including blocked moves) and collect dominance
 ordering, then recommends the next move by scoring ready moves. If metadata and
-dominance are complete, it emits the report directly. The top-move list includes
-each move's description, annotations, and a short list of first-order dominance
-relations. Started moves are labeled `[IN PROGRESS]` with a green highlight.
-Use `--mode editorial` (plus `--strict-mode` if desired) to bias
-recommendations to your current mode. You can pass Taskwarrior filter tokens
-after the command (for example `twh ondeck project:work.competitiveness -WAITING`)
-to limit the scope. The ondeck flow expects the `imp`, `urg`, `opt_human`,
-`diff`, `mode`, `dominates`, and `dominated_by` fields to exist as Taskwarrior
-UDAs if you want to edit them. Manual option values are stored in `opt_human`;
-legacy `opt` values are still accepted for scoring and calibration. When the
-wizard runs, `twh ondeck` automatically runs `twh option --apply` after updates
-so opt_auto values stay in sync.
+dominance are complete, it emits the report directly. The top-move list is a
+one-line summary per move: ID, optional `[IN PROGRESS]` marker, and description,
+so you can show more candidates by default (25; use `--top` to override). Started
+moves are labeled `[IN PROGRESS]` with a green highlight. Use `--mode editorial`
+(plus `--strict-mode` if desired) to bias recommendations to your current mode.
+You can pass Taskwarrior filter tokens after the command (for example
+`twh ondeck project:work.competitiveness -WAITING`) to limit the scope. The
+ondeck flow expects the `imp`, `urg`, `opt_human`, `diff`, `mode`, `dominates`,
+and `dominated_by` fields to exist as Taskwarrior UDAs if you want to edit them.
+Manual option values are stored in `opt_human`; legacy `opt` values are still
+accepted for scoring and calibration. When the wizard runs, `twh ondeck`
+automatically runs `twh option --apply` after updates so opt_auto values stay in
+sync.
 Ondeck ordering also incorporates a precedence score based on `enablement`,
 `blocker_relief`, `estimate_hours` (falling back to `diff`), dependency
 centrality, and the move's mode (strategic/operational/explore). When a

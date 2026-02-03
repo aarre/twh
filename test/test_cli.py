@@ -9,6 +9,7 @@ import sys
 import pytest
 import twh
 import twh.renderer as renderer
+from typer.testing import CliRunner
 
 GRAPH_COMMAND = twh.graph
 
@@ -184,6 +185,31 @@ def test_should_delegate_to_task(argv, expected):
         This test asserts on delegation behavior.
     """
     assert twh.should_delegate_to_task(argv) is expected
+
+
+@pytest.mark.unit
+def test_ondeck_default_top(monkeypatch):
+    """
+    Ensure ondeck defaults to showing 25 top candidates.
+
+    Returns
+    -------
+    None
+        This test asserts the CLI default.
+    """
+    runner = CliRunner()
+    captured: dict = {}
+
+    def fake_run_ondeck(**kwargs):
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(twh.review, "run_ondeck", fake_run_ondeck)
+
+    result = runner.invoke(twh.build_app(), ["ondeck"])
+
+    assert result.exit_code == 0
+    assert captured["top"] == 25
 
 
 @pytest.mark.parametrize(

@@ -2582,7 +2582,7 @@ def build_app():
             help="Max moves to list when showing missing metadata.",
         ),
         top: int = typer.Option(
-            5,
+            25,
             "--top",
             help="Show top N candidate moves.",
         ),

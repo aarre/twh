@@ -1110,10 +1110,27 @@ def test_rank_candidates_orders_by_schedule_time(field):
 
     assert [item.task.uuid for item in ranked] == ["u1", "u2"]
 
+@pytest.mark.parametrize(
+    ("start", "expected_marker"),
+    [
+        (None, ""),
+        (
+            datetime(2024, 1, 2, 12, 0, 0),
+            f" {review.colorize_in_progress(review.IN_PROGRESS_LABEL)}",
+        ),
+    ],
+)
 @pytest.mark.unit
-def test_format_candidate_output_includes_annotations_and_dominance():
+def test_format_candidate_output_single_line(start, expected_marker):
     """
-    Ensure candidate output shows annotations and dominance relations.
+    Ensure candidate output is a single-line summary with optional progress marker.
+
+    Parameters
+    ----------
+    start : datetime | None
+        Start timestamp to set on the move.
+    expected_marker : str
+        Expected marker string.
 
     Returns
     -------
@@ -1133,6 +1150,7 @@ def test_format_candidate_output_includes_annotations_and_dominance():
         opt=1,
         diff=1.0,
         mode=None,
+        start=start,
         dominates=["u2"],
         annotations=["Annotation one"],
         raw={},
@@ -1157,9 +1175,7 @@ def test_format_candidate_output_includes_annotations_and_dominance():
 
     lines = review.format_candidate_output(candidate, state, dominance_limit=3)
 
-    assert any("Move A" in line for line in lines)
-    assert "  Annotation: Annotation one" in lines
-    assert "  Dominates move ID 2: Move B" in lines
+    assert lines == [f"[1]{expected_marker} Move A"]
 
 
 @pytest.mark.parametrize(

@@ -1309,32 +1309,30 @@ def format_candidate_output(
     dominance_limit: int = 3,
 ) -> List[str]:
     """
-    Format the output lines for a scored move.
+    Format the output line for a scored move.
 
     Parameters
     ----------
     candidate : ScoredTask
         Scored move candidate.
     dominance_state : DominanceState
-        Dominance graph state.
+        Dominance graph state (unused for the summary output).
     dominance_limit : int, optional
-        Maximum dominance edges to show.
+        Ignored; retained for signature compatibility.
 
     Returns
     -------
     List[str]
-        Lines ready to print.
+        Single-line summary ready to print.
     """
-    lines = format_task_rationale(candidate.task, candidate.components).splitlines()
-    lines.extend(format_annotation_lines(candidate.task))
-    lines.extend(
-        format_dominance_lines(
-            candidate.task,
-            dominance_state,
-            limit=dominance_limit,
-        )
-    )
-    return lines
+    _ = dominance_state, dominance_limit
+    task = candidate.task
+    move_id = str(task.id) if task.id is not None else task.uuid[:8]
+    marker = started_marker(task)
+    description = task.description.strip()
+    if description:
+        return [f"[{move_id}]{marker} {description}"]
+    return [f"[{move_id}]{marker}"]
 
 
 def filter_candidates(
