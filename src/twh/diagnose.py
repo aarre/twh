@@ -634,7 +634,7 @@ def annotate_move(uuid: str, note: str) -> int:
     int
         Exit code.
     """
-    result = run_task_command([uuid, "modify", f"annotate:{note}"], capture_output=True)
+    result = run_task_command([uuid, "annotate", note], capture_output=True)
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
     return result.returncode

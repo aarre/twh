@@ -99,6 +99,9 @@ those fields come before moves scheduled further in the future, except when the
 timestamp is within 24 hours (or has already passed). Earlier scheduled or wait
 times are ranked ahead of later ones; when both are set, the later timestamp
 governs the ordering.
+Moves with a `start` time in the future are excluded from the ondeck report
+until that time arrives, but the wizard still prompts for missing metadata on
+all moves in scope.
 If a required UDA is missing, `twh ondeck` and `twh dominance` will stop before
 writing updates to avoid modifying move descriptions.
 

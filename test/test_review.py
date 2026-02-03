@@ -1536,6 +1536,165 @@ def test_build_review_report_combines_missing_and_candidates():
 
 
 @pytest.mark.unit
+def test_filter_future_start_tasks_excludes_future_start():
+    """
+    Ensure moves with future start times are filtered out.
+
+    Returns
+    -------
+    None
+        This test asserts filtering of future-start moves.
+    """
+    now = datetime(2026, 2, 2, 18, 45, tzinfo=timezone.utc)
+    past = now - timedelta(hours=1)
+    future = now + timedelta(hours=1)
+
+    tasks = [
+        review.ReviewTask(
+            uuid="past",
+            id=1,
+            description="Past move",
+            project=None,
+            depends=[],
+            imp=1,
+            urg=1,
+            opt=1,
+            diff=1.0,
+            mode="analysis",
+            start=past,
+            raw={},
+        ),
+        review.ReviewTask(
+            uuid="future",
+            id=2,
+            description="Future move",
+            project=None,
+            depends=[],
+            imp=1,
+            urg=1,
+            opt=1,
+            diff=1.0,
+            mode="analysis",
+            start=future,
+            raw={},
+        ),
+        review.ReviewTask(
+            uuid="none",
+            id=3,
+            description="No start",
+            project=None,
+            depends=[],
+            imp=1,
+            urg=1,
+            opt=1,
+            diff=1.0,
+            mode="analysis",
+            raw={},
+        ),
+    ]
+
+    filtered = review.filter_future_start_tasks(tasks, now)
+
+    assert [task.uuid for task in filtered] == ["past", "none"]
+
+
+@pytest.mark.unit
+def test_build_review_report_excludes_future_start_moves():
+    """
+    Ensure review reports exclude moves with future start times.
+
+    Returns
+    -------
+    None
+        This test asserts report filtering.
+    """
+    now = datetime(2026, 2, 2, 18, 45, tzinfo=timezone.utc)
+    future = now + timedelta(days=1)
+
+    tasks = [
+        review.ReviewTask(
+            uuid="ready",
+            id=1,
+            description="Ready move",
+            project=None,
+            depends=[],
+            imp=1,
+            urg=1,
+            opt=1,
+            diff=1.0,
+            mode="analysis",
+            raw={},
+        ),
+        review.ReviewTask(
+            uuid="deferred",
+            id=2,
+            description="Deferred move",
+            project=None,
+            depends=[],
+            imp=1,
+            urg=1,
+            opt=1,
+            diff=1.0,
+            mode="analysis",
+            start=future,
+            raw={},
+        ),
+    ]
+
+    report = review.build_review_report(
+        tasks,
+        current_mode=None,
+        strict_mode=False,
+        include_dominated=True,
+        top=5,
+        now=now,
+    )
+
+    assert [item.task.uuid for item in report.candidates] == ["ready"]
+
+
+@pytest.mark.unit
+def test_build_review_report_includes_future_start_in_missing():
+    """
+    Ensure missing metadata includes future-start moves.
+
+    Returns
+    -------
+    None
+        This test asserts missing metadata scope.
+    """
+    now = datetime(2026, 2, 2, 18, 45, tzinfo=timezone.utc)
+    future = now + timedelta(days=1)
+
+    tasks = [
+        review.ReviewTask(
+            uuid="future",
+            id=2,
+            description="Deferred move",
+            project=None,
+            depends=[],
+            imp=None,
+            urg=1,
+            opt=1,
+            diff=1.0,
+            mode="analysis",
+            start=future,
+            raw={},
+        ),
+    ]
+
+    report = review.build_review_report(
+        tasks,
+        current_mode=None,
+        strict_mode=False,
+        include_dominated=True,
+        top=5,
+        now=now,
+    )
+
+    assert [item.task.uuid for item in report.missing] == ["future"]
+
+@pytest.mark.unit
 def test_run_ondeck_skips_wizard_when_complete(monkeypatch):
     """
     Ensure ondeck skips the wizard when metadata and dominance are complete.

@@ -111,7 +111,7 @@ def test_run_defer_updates_start_and_annotation(capsys):
         opt=1,
     )
     now = datetime(2026, 2, 2, 18, 45)
-    recorded = {}
+    recorded = []
 
     def fake_loader(filters=None):
         return [move]
@@ -120,7 +120,7 @@ def test_run_defer_updates_start_and_annotation(capsys):
         return [move]
 
     def fake_runner(args, capture_output=False, stdin=None):
-        recorded["args"] = args
+        recorded.append(args)
         return subprocess.CompletedProcess(args, 0, stdout="Modified 1 task.\n", stderr="")
 
     responses = iter(["15 m"])
@@ -141,11 +141,17 @@ def test_run_defer_updates_start_and_annotation(capsys):
     )
 
     assert exit_code == 0
-    assert recorded["args"] == [
-        "u-1",
-        "modify",
-        "start:2026-02-02T19:00:00",
-        "annotate:2026-02-02 18:45 -- Deferred for 15 minutes to 2026-02-02 19:00.",
+    assert recorded == [
+        [
+            "u-1",
+            "modify",
+            "start:2026-02-02T19:00:00",
+        ],
+        [
+            "u-1",
+            "annotate",
+            "2026-02-02 18:45 -- Deferred for 15 minutes to 2026-02-02 19:00.",
+        ],
     ]
     captured = capsys.readouterr()
     assert "Top move" in captured.out

@@ -431,6 +431,44 @@ def normalize_review_datetime(value: datetime) -> datetime:
     return value.astimezone(get_local_timezone())
 
 
+def filter_future_start_tasks(
+    tasks: Iterable[ReviewTask],
+    now: datetime,
+) -> List[ReviewTask]:
+    """
+    Exclude moves whose start time is in the future.
+
+    Parameters
+    ----------
+    tasks : Iterable[ReviewTask]
+        Moves to filter.
+    now : datetime
+        Reference datetime for comparison.
+
+    Returns
+    -------
+    List[ReviewTask]
+        Moves whose start time has arrived.
+
+    Examples
+    --------
+    >>> now = datetime(2026, 2, 2, 18, 45)
+    >>> future = now + timedelta(hours=1)
+    >>> tasks = [ReviewTask("u1", 1, "Move", None, [], 1, 1, 1, start=future)]
+    >>> filter_future_start_tasks(tasks, now)
+    []
+    """
+    now_value = normalize_review_datetime(now)
+    ready: List[ReviewTask] = []
+    for task in tasks:
+        if task.start:
+            start_value = normalize_review_datetime(task.start)
+            if start_value > now_value:
+                continue
+        ready.append(task)
+    return ready
+
+
 @dataclass(frozen=True)
 class PrecedenceGraphStats:
     """
@@ -1413,6 +1451,7 @@ def build_review_report(
     strict_mode: bool,
     include_dominated: bool,
     top: int,
+    now: Optional[datetime] = None,
 ) -> ReviewReport:
     """
     Build a review report from pending moves.
@@ -1429,12 +1468,15 @@ def build_review_report(
         Include dominated moves when True.
     top : int
         Number of candidates to include.
+    now : Optional[datetime]
+        Reference time for filtering and scheduling (default: now).
 
     Returns
     -------
     ReviewReport
         Review report data.
     """
+    now_value = normalize_review_datetime(now or datetime.now().astimezone())
     pending_list = list(pending)
     ready = ready_tasks(pending_list)
     _dominance_state, dominance_tiers, dominance_missing = _build_dominance_context(
@@ -1451,11 +1493,13 @@ def build_review_report(
         strict_mode=strict_mode,
         include_dominated=include_dominated,
     )
+    candidates = filter_future_start_tasks(candidates, now_value)
     ranked = rank_candidates(
         candidates,
         current_mode=current_mode,
         top=top,
         dominance_tiers=dominance_tiers,
+        now=now_value,
         graph_tasks=pending_list,
     )
     return ReviewReport(missing=missing, candidates=ranked)
@@ -1717,12 +1761,14 @@ def run_ondeck(
             print(f"twh: ondeck failed: {exc}")
             return 1
 
+    now_value = normalize_review_datetime(datetime.now().astimezone())
     report = build_review_report(
         pending,
         current_mode=mode,
         strict_mode=strict_mode,
         include_dominated=include_dominated,
         top=top,
+        now=now_value,
     )
 
     if not report.candidates:

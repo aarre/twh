@@ -5,6 +5,7 @@ Tests for the twh diagnose workflow helpers.
 from __future__ import annotations
 
 import doctest
+import subprocess
 from typing import Callable
 
 import pytest
@@ -349,6 +350,35 @@ def test_format_missing_uda_instructions():
     assert "Add the following to ~/.taskrc" in text
     assert "uda.energy.type=numeric" in text
     assert "uda.mechanical.type=numeric" in text
+
+
+@pytest.mark.unit
+def test_annotate_move_uses_task_annotate(monkeypatch):
+    """
+    Ensure annotate_move uses Taskwarrior's annotate command.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture for patching the Taskwarrior runner.
+
+    Returns
+    -------
+    None
+        This test asserts on annotate command usage.
+    """
+    calls = []
+
+    def fake_run(args, capture_output=False):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(diagnose_module, "run_task_command", fake_run)
+
+    exit_code = diagnose_module.annotate_move("u-1", "Deferred note")
+
+    assert exit_code == 0
+    assert calls == [["u-1", "annotate", "Deferred note"]]
 
 
 @pytest.mark.unit

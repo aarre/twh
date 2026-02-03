@@ -309,16 +309,27 @@ def run_defer(
 
     start_value = format_task_start_timestamp(target)
     note = format_defer_annotation(now_value, target, amount, unit)
-    result = task_runner(
-        [top_move.uuid, "modify", f"start:{start_value}", f"annotate:{note}"],
+    start_result = task_runner(
+        [top_move.uuid, "modify", f"start:{start_value}"],
         capture_output=True,
     )
-    for line in filter_modified_zero_lines(result.stdout):
+    for line in filter_modified_zero_lines(start_result.stdout):
         print(line)
-    if result.stderr:
-        print(result.stderr, end="", file=sys.stderr)
-    if result.returncode != 0:
-        return result.returncode
+    if start_result.stderr:
+        print(start_result.stderr, end="", file=sys.stderr)
+    if start_result.returncode != 0:
+        return start_result.returncode
+
+    annotate_result = task_runner(
+        [top_move.uuid, "annotate", note],
+        capture_output=True,
+    )
+    for line in filter_modified_zero_lines(annotate_result.stdout):
+        print(line)
+    if annotate_result.stderr:
+        print(annotate_result.stderr, end="", file=sys.stderr)
+    if annotate_result.returncode != 0:
+        return annotate_result.returncode
 
     move_id = str(top_move.id) if top_move.id is not None else top_move.uuid[:8]
     print(f"Deferred move {move_id} to {format_defer_timestamp(target)}.")
