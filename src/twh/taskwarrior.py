@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Sequence
 
@@ -389,3 +390,79 @@ def get_defined_udas(
     if result.returncode != 0:
         return set()
     return _parse_defined_udas(result.stdout or "")
+
+
+def _parse_columns_output(output: str) -> List[str]:
+    """
+    Parse Taskwarrior _columns output into column names.
+
+    Parameters
+    ----------
+    output : str
+        Raw _columns output.
+
+    Returns
+    -------
+    List[str]
+        Parsed column names.
+
+    Examples
+    --------
+    >>> _parse_columns_output("id\\nproject\\n\\nstatus\\n")
+    ['id', 'project', 'status']
+    """
+    return [token.strip() for token in output.split() if token.strip()]
+
+
+def get_taskwarrior_columns(
+    runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
+) -> List[str]:
+    """
+    Return Taskwarrior column names from ``task _columns``.
+
+    Parameters
+    ----------
+    runner : Optional[Callable[..., subprocess.CompletedProcess]]
+        Runner to execute Taskwarrior commands (args exclude ``task``).
+
+    Returns
+    -------
+    List[str]
+        Column names reported by Taskwarrior.
+    """
+    if runner is None:
+        def task_runner(args, **kwargs):
+            return subprocess.run(["task", *args], **kwargs)
+
+        runner = task_runner
+    result = runner(["_columns"], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        return []
+    return _parse_columns_output(result.stdout or "")
+
+
+@lru_cache(maxsize=1)
+def get_core_attribute_names(
+    runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
+    udas_runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
+) -> set[str]:
+    """
+    Return Taskwarrior core attribute names (excluding UDAs).
+
+    Parameters
+    ----------
+    runner : Optional[Callable[..., subprocess.CompletedProcess]]
+        Runner for ``task _columns``.
+    udas_runner : Optional[Callable[..., subprocess.CompletedProcess]]
+        Runner for ``task udas``.
+
+    Returns
+    -------
+    set[str]
+        Core attribute names.
+    """
+    columns = set(get_taskwarrior_columns(runner=runner))
+    if not columns:
+        return set()
+    udas = get_defined_udas(runner=udas_runner or runner)
+    return {col for col in columns if col not in udas}

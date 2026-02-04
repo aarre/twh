@@ -1585,16 +1585,22 @@ def interactive_fill_missing(
             updates["diff"] = value
     if not task.mode:
         prompt = modes_module.format_mode_prompt(known_modes)
-        value = modes_module.prompt_mode_value(
-            prompt,
-            known_modes,
-            input_func=input_func,
-        ).strip()
-        if value:
+        while True:
+            value = modes_module.prompt_mode_value(
+                prompt,
+                known_modes,
+                input_func=input_func,
+            ).strip()
+            if not value:
+                break
             normalized = modes_module.normalize_mode_value(value)
+            if modes_module.is_reserved_mode_value(normalized):
+                print(modes_module.format_reserved_mode_error(normalized))
+                continue
             updates["mode"] = normalized
             known_modes = modes_module.register_mode(normalized, modes=known_modes)
             modes_module.ensure_taskwarrior_mode_value(normalized)
+            break
     return updates
 
 
@@ -1638,6 +1644,11 @@ def apply_updates(
     )
     if missing:
         raise RuntimeError(describe_missing_udas(missing))
+    if "mode" in updates:
+        modes_module.validate_taskwarrior_mode_config(
+            updates.get("mode"),
+            get_setting=get_setting,
+        )
     parts = [f"{key}:{value}" for key, value in updates.items()]
     result = run_task_command([uuid, "modify", *parts], capture_output=True)
     stdout_lines = filter_modified_zero_lines(result.stdout)

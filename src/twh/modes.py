@@ -10,6 +10,7 @@ import sys
 import subprocess
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional, Sequence
+from functools import lru_cache
 
 DEFAULT_MODES = [
     "analysis",
@@ -23,6 +24,39 @@ DEFAULT_MODES = [
     "errand",
 ]
 MODE_ENV_VAR = "TWH_MODES_PATH"
+RESERVED_STATUS_VALUES = {
+    "pending",
+    "completed",
+    "deleted",
+    "recurring",
+    "waiting",
+}
+FALLBACK_CORE_ATTRIBUTES = {
+    "annotation",
+    "annotations",
+    "depends",
+    "description",
+    "due",
+    "end",
+    "entry",
+    "id",
+    "imask",
+    "mask",
+    "modified",
+    "parent",
+    "priority",
+    "project",
+    "recur",
+    "scheduled",
+    "start",
+    "status",
+    "tags",
+    "template",
+    "until",
+    "urgency",
+    "uuid",
+    "wait",
+}
 
 
 def normalize_mode_value(value: Optional[str]) -> str:
@@ -49,6 +83,99 @@ def normalize_mode_value(value: Optional[str]) -> str:
     if value is None:
         return ""
     return str(value).strip().lower()
+
+
+def _collect_reserved_mode_values(core_attributes: Iterable[str]) -> set[str]:
+    reserved = {normalize_mode_value(attr) for attr in core_attributes}
+    reserved.update(RESERVED_STATUS_VALUES)
+    return {value for value in reserved if value}
+
+
+def _fallback_reserved_mode_values() -> set[str]:
+    return _collect_reserved_mode_values(FALLBACK_CORE_ATTRIBUTES)
+
+
+@lru_cache(maxsize=1)
+def _default_reserved_mode_values() -> set[str]:
+    from . import taskwarrior
+
+    core = taskwarrior.get_core_attribute_names()
+    if not core:
+        return _fallback_reserved_mode_values()
+    return _collect_reserved_mode_values(core)
+
+
+def get_reserved_mode_values(
+    *,
+    core_attributes: Optional[Iterable[str]] = None,
+) -> set[str]:
+    """
+    Return reserved mode values derived from core attributes/status keywords.
+
+    Parameters
+    ----------
+    core_attributes : Optional[Iterable[str]]
+        Optional core attribute names to use (default: query Taskwarrior).
+
+    Returns
+    -------
+    set[str]
+        Reserved mode values.
+    """
+    if core_attributes is None:
+        return _default_reserved_mode_values()
+    return _collect_reserved_mode_values(core_attributes)
+
+
+def is_reserved_mode_value(
+    value: Optional[str],
+    *,
+    reserved: Optional[Iterable[str]] = None,
+) -> bool:
+    """
+    Return True when the mode value is reserved by Taskwarrior.
+
+    Parameters
+    ----------
+    value : Optional[str]
+        Mode value to check.
+    reserved : Optional[Iterable[str]]
+        Optional reserved values list.
+
+    Returns
+    -------
+    bool
+        True if reserved, False otherwise.
+    """
+    normalized = normalize_mode_value(value)
+    if not normalized:
+        return False
+    reserved_values = (
+        {normalize_mode_value(item) for item in reserved}
+        if reserved is not None
+        else get_reserved_mode_values()
+    )
+    return normalized in reserved_values
+
+
+def format_reserved_mode_error(mode: str) -> str:
+    """
+    Format a helpful error for reserved mode values.
+
+    Parameters
+    ----------
+    mode : str
+        Mode value entered.
+
+    Returns
+    -------
+    str
+        Error message.
+    """
+    return (
+        f"  Mode '{mode}' is reserved by Taskwarrior (core attribute/status). "
+        "Please choose a different mode (for example, 'waiting')."
+    )
 
 
 def get_modes_path() -> Path:
@@ -246,6 +373,65 @@ def ensure_taskwarrior_mode_value(
         check=False,
     )
     return result.returncode == 0
+
+
+def validate_taskwarrior_mode_config(
+    mode: Optional[str],
+    *,
+    get_setting: Optional[Callable[[str], Optional[str]]] = None,
+) -> None:
+    """
+    Validate Taskwarrior mode UDA settings for the provided mode.
+
+    Parameters
+    ----------
+    mode : Optional[str]
+        Mode value to validate.
+    get_setting : Optional[Callable[[str], Optional[str]]], optional
+        Getter for Taskwarrior settings.
+
+    Returns
+    -------
+    None
+        Validation raises on misconfiguration.
+
+    Raises
+    ------
+    RuntimeError
+        If Taskwarrior cannot store the provided mode value.
+
+    Examples
+    --------
+    >>> validate_taskwarrior_mode_config(
+    ...     "analysis",
+    ...     get_setting=lambda key: "string" if key == "uda.mode.type" else None,
+    ... )
+    """
+    normalized = normalize_mode_value(mode)
+    if not normalized:
+        return
+    if is_reserved_mode_value(normalized):
+        raise RuntimeError(format_reserved_mode_error(normalized).strip())
+    if get_setting is None:
+        from .taskwarrior import get_taskwarrior_setting
+
+        get_setting = get_taskwarrior_setting
+    mode_type = normalize_mode_value(get_setting("uda.mode.type"))
+    if mode_type and mode_type != "string":
+        raise RuntimeError(
+            "Taskwarrior uda.mode.type must be 'string' to store mode values. "
+            f"Found '{mode_type}'. Update your active Taskwarrior config and rerun."
+        )
+    raw_values = get_setting("uda.mode.values")
+    if raw_values:
+        existing = _split_taskwarrior_values(raw_values)
+        if not any(normalize_mode_value(value) == normalized for value in existing):
+            allowed = ", ".join(existing)
+            suffix = f" Allowed values: {allowed}." if allowed else ""
+            raise RuntimeError(
+                f"Mode value '{normalized}' is not listed in uda.mode.values."
+                f"{suffix} Add it to your active Taskwarrior config and rerun."
+            )
 
 
 def best_mode_completion(prefix: str, modes: Sequence[str]) -> Optional[str]:
