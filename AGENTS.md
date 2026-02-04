@@ -48,6 +48,7 @@ Already implemented, among other requirements:
 * Taskwarrior modify failures during metadata updates raise errors to avoid silently losing mode entries.
 * README now includes WSL-friendly installation and reinstall steps (venv + pipx) for dependencies like prompt_toolkit.
 * `twh ondeck` marks started moves as in progress in its output, using a green highlight for visibility.
+* Enforce LF line endings via `.gitattributes` and keep `core.autocrlf=input` for WSL development to avoid CRLF warnings.
 * `twh ondeck` excludes moves whose `start` time is in the future from its report output, but still includes them in the missing-metadata wizard.
 * Before any operation that could modify move descriptions (including writing UDAs that might be misconfigured), halt and ask for guidance. If a required UDA is missing and its absence could overwrite descriptions, stop and ask for guidance before proceeding.
 * Move descriptions are sacrosanct. Never change a move description without halting all processes and requesting explicit permission.
