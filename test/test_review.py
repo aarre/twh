@@ -1441,6 +1441,73 @@ def test_apply_updates_suppresses_modified_zero(monkeypatch, capsys):
     assert captured.out == ""
 
 
+@pytest.mark.unit
+def test_apply_updates_verifies_mode_persistence(monkeypatch):
+    """
+    Ensure mode updates are verified after modify.
+
+    Returns
+    -------
+    None
+        This test asserts mode persistence checks.
+    """
+    calls = []
+
+    def fake_runner(args, capture_output=False, **_kwargs):
+        calls.append(args)
+        if args[1] == "modify":
+            return review.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        return review.subprocess.CompletedProcess(
+            args,
+            0,
+            stdout='[{"uuid": "uuid-1", "mode": "wait"}]',
+            stderr="",
+        )
+
+    monkeypatch.setattr(review, "run_task_command", fake_runner)
+
+    review.apply_updates(
+        "uuid-1",
+        {"mode": "wait"},
+        get_setting=lambda _key: "string",
+    )
+
+    assert calls == [
+        ["uuid-1", "modify", "mode:wait"],
+        ["uuid-1", "export"],
+    ]
+
+
+@pytest.mark.unit
+def test_apply_updates_raises_when_mode_missing_after_update(monkeypatch):
+    """
+    Ensure missing mode values after update raise an error.
+
+    Returns
+    -------
+    None
+        This test asserts post-update mode verification.
+    """
+    def fake_runner(args, capture_output=False, **_kwargs):
+        if args[1] == "modify":
+            return review.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        return review.subprocess.CompletedProcess(
+            args,
+            0,
+            stdout='[{"uuid": "uuid-1"}]',
+            stderr="",
+        )
+
+    monkeypatch.setattr(review, "run_task_command", fake_runner)
+
+    with pytest.raises(RuntimeError, match="Mode update did not persist"):
+        review.apply_updates(
+            "uuid-1",
+            {"mode": "wait"},
+            get_setting=lambda _key: "string",
+        )
+
+
 @pytest.mark.parametrize(
     ("returncode", "stdout", "stderr", "expected"),
     [

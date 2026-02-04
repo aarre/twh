@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set,
 
 from .taskwarrior import (
     apply_case_insensitive_overrides,
+    describe_missing_udas,
     filter_modified_zero_lines,
     missing_udas,
     parse_dependencies,
@@ -952,13 +953,9 @@ def apply_option_values(
     if not updates:
         return 0
 
-    missing = missing_udas(sorted(required_udas))
+    missing = missing_udas(sorted(required_udas), allow_taskrc_fallback=False)
     if missing:
-        missing_list = ", ".join(missing)
-        raise RuntimeError(
-            "Missing Taskwarrior UDA(s): "
-            f"{missing_list}. Aborting to avoid modifying move descriptions."
-        )
+        raise RuntimeError(describe_missing_udas(missing))
 
     exit_code = 0
     for uuid, task_updates in updates:

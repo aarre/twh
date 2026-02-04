@@ -380,7 +380,7 @@ def format_missing_uda_instructions(missing: Sequence[str]) -> str:
     joined = ", ".join(missing)
     lines = [
         f"Missing Taskwarrior UDA(s): {joined}.",
-        "Add the following to ~/.taskrc and re-run twh diagnose:",
+        "Add the following to your active Taskwarrior config and re-run twh diagnose:",
         "Diagnose will not write dimension values until these UDAs exist to avoid modifying move descriptions.",
     ]
     for field in missing:
@@ -404,7 +404,7 @@ def ensure_udas_present(fields: Iterable[str]) -> bool:
     bool
         True when all UDAs exist.
     """
-    missing = missing_udas(fields)
+    missing = missing_udas(fields, allow_taskrc_fallback=False)
     if not missing:
         return True
     message = format_missing_uda_instructions(missing)

@@ -12,7 +12,11 @@ from enum import IntEnum
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .review import ReviewTask, load_pending_tasks
-from .taskwarrior import filter_modified_zero_lines, missing_udas
+from .taskwarrior import (
+    describe_missing_udas,
+    filter_modified_zero_lines,
+    missing_udas,
+)
 
 
 class DominanceChoice(IntEnum):
@@ -170,19 +174,27 @@ def _compute_reachability(
     True
     """
     reachability: Dict[str, Set[str]] = {}
-    for uuid in uuids:
-        visited: Set[str] = {uuid}
+    uuid_set = set(uuids)
+    visiting: Set[str] = set()
+
+    def dfs(node: str) -> Set[str]:
+        if node in reachability:
+            return reachability[node]
+        if node in visiting:
+            return set()
+        visiting.add(node)
         reachable: Set[str] = set()
-        stack = [uuid]
-        while stack:
-            node = stack.pop()
-            for neighbor in state.dominates.get(node, set()):
-                if neighbor in visited:
-                    continue
-                visited.add(neighbor)
-                reachable.add(neighbor)
-                stack.append(neighbor)
-        reachability[uuid] = reachable
+        for neighbor in state.dominates.get(node, set()):
+            if neighbor not in uuid_set:
+                continue
+            reachable.add(neighbor)
+            reachable.update(dfs(neighbor))
+        visiting.remove(node)
+        reachability[node] = reachable
+        return reachable
+
+    for uuid in uuids:
+        dfs(uuid)
     return reachability
 
 
@@ -551,13 +563,13 @@ def apply_dominance_updates(
         from .taskwarrior import get_taskwarrior_setting
 
         get_setting = get_taskwarrior_setting
-    missing = missing_udas(["dominates", "dominated_by"], get_setting=get_setting)
+    missing = missing_udas(
+        ["dominates", "dominated_by"],
+        get_setting=get_setting,
+        allow_taskrc_fallback=False,
+    )
     if missing:
-        missing_list = ", ".join(missing)
-        raise RuntimeError(
-            "Missing Taskwarrior UDA(s): "
-            f"{missing_list}. Aborting to avoid modifying move descriptions."
-        )
+        raise RuntimeError(describe_missing_udas(missing))
     if runner is None:
         def task_runner(args, **kwargs):
             return subprocess.run(["task", *args], **kwargs)

@@ -51,6 +51,7 @@ def test_missing_udas_falls_back_to_taskrc(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     monkeypatch.setenv("TASKRC", str(taskrc))
+    monkeypatch.setattr(taskwarrior, "get_defined_udas", lambda *_a, **_k: set())
 
     missing = taskwarrior.missing_udas(
         ["dominates", "dominated_by"],
@@ -73,8 +74,54 @@ def test_missing_udas_reports_missing(tmp_path, monkeypatch):
     taskrc = tmp_path / ".taskrc"
     taskrc.write_text("", encoding="utf-8")
     monkeypatch.setenv("TASKRC", str(taskrc))
+    monkeypatch.setattr(taskwarrior, "get_defined_udas", lambda *_a, **_k: set())
 
     missing = taskwarrior.missing_udas(["diff"], get_setting=lambda _key: None)
+
+    assert missing == ["diff"]
+
+
+@pytest.mark.unit
+def test_missing_udas_uses_task_udas(monkeypatch):
+    """
+    Ensure Taskwarrior UDAs are honored when taskrc fallback is disabled.
+
+    Returns
+    -------
+    None
+        This test asserts task UDAs are used.
+    """
+    monkeypatch.setattr(taskwarrior, "get_defined_udas", lambda *_a, **_k: {"mode"})
+
+    missing = taskwarrior.missing_udas(
+        ["mode"],
+        get_setting=lambda _key: None,
+        allow_taskrc_fallback=False,
+    )
+
+    assert missing == []
+
+
+@pytest.mark.unit
+def test_missing_udas_strict_ignores_taskrc(tmp_path, monkeypatch):
+    """
+    Ensure strict UDA detection ignores taskrc fallback.
+
+    Returns
+    -------
+    None
+        This test asserts strict UDA detection.
+    """
+    taskrc = tmp_path / ".taskrc"
+    taskrc.write_text("uda.diff.type=numeric\n", encoding="utf-8")
+    monkeypatch.setenv("TASKRC", str(taskrc))
+    monkeypatch.setattr(taskwarrior, "get_defined_udas", lambda *_a, **_k: set())
+
+    missing = taskwarrior.missing_udas(
+        ["diff"],
+        get_setting=lambda _key: None,
+        allow_taskrc_fallback=False,
+    )
 
     assert missing == ["diff"]
 

@@ -19,6 +19,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tupl
 
 from .taskwarrior import (
     apply_case_insensitive_overrides,
+    describe_missing_udas,
     filter_modified_zero_lines,
     get_tasks_from_taskwarrior,
     missing_udas,
@@ -654,12 +655,13 @@ def run_interactive_add(
         sys.stdout.flush()
 
     if add_input.metadata:
-        missing = missing_udas(add_input.metadata.keys())
+        missing = missing_udas(
+            add_input.metadata.keys(),
+            allow_taskrc_fallback=False,
+        )
         if missing:
-            missing_list = ", ".join(missing)
             print(
-                "twh: add failed: Missing Taskwarrior UDA(s): "
-                f"{missing_list}. Aborting to avoid modifying move descriptions.",
+                f"twh: add failed: {describe_missing_udas(missing)}",
                 file=sys.stderr,
             )
             return 1
@@ -690,12 +692,13 @@ def run_interactive_add(
             quiet=True,
         )
 
-    missing_dominance = missing_udas(["dominates", "dominated_by"])
+    missing_dominance = missing_udas(
+        ["dominates", "dominated_by"],
+        allow_taskrc_fallback=False,
+    )
     if missing_dominance:
-        missing_list = ", ".join(missing_dominance)
         print(
-            "twh: add failed: Missing Taskwarrior UDA(s): "
-            f"{missing_list}. Aborting to avoid modifying move descriptions.",
+            f"twh: add failed: {describe_missing_udas(missing_dominance)}",
             file=sys.stderr,
         )
         return exit_code or 1

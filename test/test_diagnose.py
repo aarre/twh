@@ -347,7 +347,7 @@ def test_format_missing_uda_instructions():
     text = diagnose_module.format_missing_uda_instructions(["energy", "mechanical"])
 
     assert "Missing Taskwarrior UDA(s): energy, mechanical." in text
-    assert "Add the following to ~/.taskrc" in text
+    assert "Add the following to your active Taskwarrior config" in text
     assert "uda.energy.type=numeric" in text
     assert "uda.mechanical.type=numeric" in text
 

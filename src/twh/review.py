@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set,
 
 from .taskwarrior import (
     apply_case_insensitive_overrides,
+    describe_missing_udas,
     filter_modified_zero_lines,
     missing_udas,
     parse_dependencies,
@@ -931,6 +932,29 @@ def _build_dominance_context(
     return state, tiers, missing
 
 
+def _build_dominance_state_and_missing(
+    pending: Sequence[ReviewTask],
+) -> Tuple["DominanceState", set[str]]:
+    """
+    Build dominance state and missing UUIDs without tiers.
+
+    Parameters
+    ----------
+    pending : Sequence[ReviewTask]
+        Pending moves in scope.
+
+    Returns
+    -------
+    Tuple[DominanceState, set[str]]
+        Dominance state and missing UUIDs.
+    """
+    from . import dominance as dominance_module
+
+    state = dominance_module.build_dominance_state(pending)
+    missing = dominance_module.dominance_missing_uuids(pending, state)
+    return state, missing
+
+
 def dominated_set(tasks: Iterable[ReviewTask]) -> set[str]:
     """
     Return UUIDs explicitly dominated by other moves.
@@ -1607,13 +1631,13 @@ def apply_updates(
         from .taskwarrior import get_taskwarrior_setting
 
         get_setting = get_taskwarrior_setting
-    missing = missing_udas(updates.keys(), get_setting=get_setting)
+    missing = missing_udas(
+        updates.keys(),
+        get_setting=get_setting,
+        allow_taskrc_fallback=False,
+    )
     if missing:
-        missing_list = ", ".join(missing)
-        raise RuntimeError(
-            "Missing Taskwarrior UDA(s): "
-            f"{missing_list}. Aborting to avoid modifying move descriptions."
-        )
+        raise RuntimeError(describe_missing_udas(missing))
     parts = [f"{key}:{value}" for key, value in updates.items()]
     result = run_task_command([uuid, "modify", *parts], capture_output=True)
     stdout_lines = filter_modified_zero_lines(result.stdout)
@@ -1625,6 +1649,27 @@ def apply_updates(
         print(line)
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
+    if "mode" in updates:
+        expected = modes_module.normalize_mode_value(updates.get("mode"))
+        if expected:
+            verify_result = run_task_command([uuid, "export"], capture_output=True)
+            if verify_result.returncode != 0:
+                stderr = (verify_result.stderr or "").strip()
+                raise RuntimeError(stderr or "Taskwarrior export failed after update.")
+            payloads = read_tasks_from_json(verify_result.stdout or "")
+            stored_value: Optional[str] = None
+            for payload in payloads:
+                if isinstance(payload, dict) and payload.get("uuid") == uuid:
+                    stored_value = modes_module.normalize_mode_value(
+                        payload.get("mode")
+                    )
+                    break
+            if stored_value != expected:
+                raise RuntimeError(
+                    "Mode update did not persist. Expected "
+                    f"'{expected}', got '{stored_value or ''}'. "
+                    "Check uda.mode.type/values in your active Taskwarrior config."
+                )
 
 
 def load_pending_tasks(filters: Optional[Sequence[str]] = None) -> List[ReviewTask]:
@@ -1707,16 +1752,28 @@ def run_ondeck(
         print("No pending moves found.")
         return 0
 
-    dominance_state, dominance_tiers, dominance_missing = _build_dominance_context(
-        pending
-    )
     ready = ready_tasks(pending)
+    dominance_state: Optional[DominanceState] = None
+    dominance_tiers: Optional[List[List[ReviewTask]]] = None
+    dominance_missing: set[str] = set()
     missing = collect_missing_metadata(
         pending,
         ready,
-        dominance_missing=dominance_missing,
+        dominance_missing=set(),
     )
     needs_wizard = bool(missing)
+
+    if not needs_wizard:
+        dominance_state, dominance_missing = _build_dominance_state_and_missing(
+            pending
+        )
+        if dominance_missing:
+            missing = collect_missing_metadata(
+                pending,
+                ready,
+                dominance_missing=dominance_missing,
+            )
+            needs_wizard = True
 
     if needs_wizard:
         print("\nMoves missing metadata or dominance ordering (ready moves first):")
@@ -1747,6 +1804,11 @@ def run_ondeck(
                 updated = True
                 print("Updated.")
 
+    if needs_wizard and dominance_state is None:
+        dominance_state, dominance_missing = _build_dominance_state_and_missing(
+            pending
+        )
+
     if needs_wizard and dominance_missing:
         from . import dominance as dominance_module
 
@@ -1768,7 +1830,7 @@ def run_ondeck(
         updated = True
         print(f"Dominance updated for {len(pending)} moves.")
 
-    if needs_wizard:
+    if updated:
         from . import option_value as option_module
 
         option_exit = option_module.run_option_value(
@@ -1787,10 +1849,23 @@ def run_ondeck(
         except RuntimeError as exc:
             print(f"twh: ondeck failed: {exc}")
             return 1
-        dominance_state, dominance_tiers, dominance_missing = _build_dominance_context(
-            pending
-        )
         ready = ready_tasks(pending)
+        dominance_state = None
+        dominance_tiers = None
+        dominance_missing = set()
+
+    if dominance_tiers is None:
+        from . import dominance as dominance_module
+
+        if dominance_state is None:
+            dominance_state, dominance_tiers, dominance_missing = _build_dominance_context(
+                pending
+            )
+        else:
+            dominance_tiers = dominance_module.build_tiers_from_state(
+                pending,
+                dominance_state,
+            )
 
     now_value = normalize_review_datetime(datetime.now().astimezone())
     report = build_review_report(
