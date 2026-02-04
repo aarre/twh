@@ -137,6 +137,55 @@ def _dominates_path(state: DominanceState, start: str, target: str) -> bool:
     return False
 
 
+def _compute_reachability(
+    state: DominanceState,
+    uuids: Sequence[str],
+) -> Dict[str, Set[str]]:
+    """
+    Compute dominance reachability for each move UUID.
+
+    Parameters
+    ----------
+    state : DominanceState
+        Dominance graph state.
+    uuids : Sequence[str]
+        UUIDs to include in reachability calculations.
+
+    Returns
+    -------
+    Dict[str, Set[str]]
+        Mapping from UUID to the set of UUIDs it dominates via paths.
+
+    Examples
+    --------
+    >>> from twh.review import ReviewTask
+    >>> move_a = ReviewTask("a", 1, "A", None, [], 1, 1, 1)
+    >>> move_b = ReviewTask("b", 2, "B", None, [], 1, 1, 1)
+    >>> state = DominanceState(
+    ...     tasks={"a": move_a, "b": move_b},
+    ...     dominates={"a": {"b"}, "b": set()},
+    ...     ties=set(),
+    ... )
+    >>> _compute_reachability(state, ["a", "b"])["a"] == {"b"}
+    True
+    """
+    reachability: Dict[str, Set[str]] = {}
+    for uuid in uuids:
+        visited: Set[str] = {uuid}
+        reachable: Set[str] = set()
+        stack = [uuid]
+        while stack:
+            node = stack.pop()
+            for neighbor in state.dominates.get(node, set()):
+                if neighbor in visited:
+                    continue
+                visited.add(neighbor)
+                reachable.add(neighbor)
+                stack.append(neighbor)
+        reachability[uuid] = reachable
+    return reachability
+
+
 def dominance_relation(state: DominanceState, left: str, right: str) -> str:
     """
     Determine the dominance relation between two moves.
@@ -186,13 +235,33 @@ def dominance_missing_uuids(
         UUIDs missing dominance information.
     """
     task_list = list(tasks)
+    if len(task_list) < 2:
+        return set()
+    uuid_list = [task.uuid for task in task_list]
+    uuid_set = set(uuid_list)
+    ties = state.ties
+    reachability = _compute_reachability(state, uuid_list)
+    reverse: Dict[str, Set[str]] = {uuid: set() for uuid in uuid_list}
+    for source, targets in reachability.items():
+        for target in targets:
+            if target in reverse:
+                reverse[target].add(source)
+    tie_map: Dict[str, Set[str]] = {uuid: set() for uuid in uuid_list}
+    for pair in ties:
+        left, right = tuple(pair)
+        if left in uuid_set and right in uuid_set:
+            tie_map[left].add(right)
+            tie_map[right].add(left)
     missing: Set[str] = set()
-    for idx, left in enumerate(task_list):
-        for right in task_list[idx + 1:]:
-            relation = dominance_relation(state, left.uuid, right.uuid)
-            if relation == "unknown":
-                missing.add(left.uuid)
-                missing.add(right.uuid)
+    comparable_count = len(uuid_list) - 1
+    for uuid in uuid_list:
+        comparable = (
+            reachability.get(uuid, set())
+            | reverse.get(uuid, set())
+            | tie_map.get(uuid, set())
+        )
+        if len(comparable) < comparable_count:
+            missing.add(uuid)
     return missing
 
 
@@ -212,12 +281,34 @@ def count_unknown_pairs(tasks: Sequence[ReviewTask], state: DominanceState) -> i
     int
         Number of unresolved dominance pairs.
     """
-    total = 0
-    for idx, left in enumerate(tasks):
-        for right in tasks[idx + 1 :]:
-            if dominance_relation(state, left.uuid, right.uuid) == "unknown":
-                total += 1
-    return total
+    task_list = list(tasks)
+    if len(task_list) < 2:
+        return 0
+    uuid_list = [task.uuid for task in task_list]
+    uuid_set = set(uuid_list)
+    ties = state.ties
+    reachability = _compute_reachability(state, uuid_list)
+    reverse: Dict[str, Set[str]] = {uuid: set() for uuid in uuid_list}
+    for source, targets in reachability.items():
+        for target in targets:
+            if target in reverse:
+                reverse[target].add(source)
+    tie_map: Dict[str, Set[str]] = {uuid: set() for uuid in uuid_list}
+    for pair in ties:
+        left, right = tuple(pair)
+        if left in uuid_set and right in uuid_set:
+            tie_map[left].add(right)
+            tie_map[right].add(left)
+    total_unknown = 0
+    comparable_count = len(uuid_list) - 1
+    for uuid in uuid_list:
+        comparable = (
+            reachability.get(uuid, set())
+            | reverse.get(uuid, set())
+            | tie_map.get(uuid, set())
+        )
+        total_unknown += max(0, comparable_count - len(comparable))
+    return total_unknown // 2
 
 
 def make_progress_chooser(

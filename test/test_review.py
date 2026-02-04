@@ -1441,6 +1441,50 @@ def test_apply_updates_suppresses_modified_zero(monkeypatch, capsys):
     assert captured.out == ""
 
 
+@pytest.mark.parametrize(
+    ("returncode", "stdout", "stderr", "expected"),
+    [
+        (1, "", "Taskwarrior error", "Taskwarrior error"),
+        (2, "Error: invalid value", "", "Error: invalid value"),
+    ],
+)
+@pytest.mark.unit
+def test_apply_updates_raises_on_failure(
+    monkeypatch,
+    returncode,
+    stdout,
+    stderr,
+    expected,
+):
+    """
+    Ensure Taskwarrior failures raise with error details.
+
+    Returns
+    -------
+    None
+        This test asserts error propagation on update failure.
+    """
+    def fake_runner(args, capture_output=False, **_kwargs):
+        assert capture_output is True
+        return review.subprocess.CompletedProcess(
+            args,
+            returncode,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    monkeypatch.setattr(review, "run_task_command", fake_runner)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        review.apply_updates(
+            "uuid-1",
+            {"imp": "3"},
+            get_setting=lambda _key: "numeric",
+        )
+
+    assert expected in str(excinfo.value)
+
+
 @pytest.mark.unit
 def test_apply_updates_requires_udas(tmp_path, monkeypatch):
     """

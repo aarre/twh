@@ -1451,6 +1451,10 @@ def build_review_report(
     include_dominated: bool,
     top: int,
     now: Optional[datetime] = None,
+    *,
+    ready: Optional[Iterable[ReviewTask]] = None,
+    dominance_tiers: Optional[List[List[ReviewTask]]] = None,
+    dominance_missing: Optional[set[str]] = None,
 ) -> ReviewReport:
     """
     Build a review report from pending moves.
@@ -1469,6 +1473,12 @@ def build_review_report(
         Number of candidates to include.
     now : Optional[datetime]
         Reference time for filtering and scheduling (default: now).
+    ready : Optional[Iterable[ReviewTask]]
+        Precomputed ready moves (default: compute from pending).
+    dominance_tiers : Optional[List[List[ReviewTask]]]
+        Precomputed dominance tiers (default: compute from pending).
+    dominance_missing : Optional[set[str]]
+        Precomputed missing dominance UUIDs (default: compute from pending).
 
     Returns
     -------
@@ -1477,17 +1487,18 @@ def build_review_report(
     """
     now_value = normalize_review_datetime(now or datetime.now().astimezone())
     pending_list = list(pending)
-    ready = ready_tasks(pending_list)
-    _dominance_state, dominance_tiers, dominance_missing = _build_dominance_context(
-        pending_list
-    )
+    ready_list = list(ready) if ready is not None else ready_tasks(pending_list)
+    if dominance_tiers is None or dominance_missing is None:
+        _dominance_state, dominance_tiers, dominance_missing = _build_dominance_context(
+            pending_list
+        )
     missing = collect_missing_metadata(
         pending_list,
-        ready,
+        ready_list,
         dominance_missing=dominance_missing,
     )
     candidates = filter_candidates(
-        ready,
+        ready_list,
         current_mode=current_mode,
         strict_mode=strict_mode,
         include_dominated=include_dominated,
@@ -1584,6 +1595,11 @@ def apply_updates(
     -------
     None
         Updates are applied to Taskwarrior.
+
+    Raises
+    ------
+    RuntimeError
+        If required UDAs are missing or Taskwarrior rejects updates.
     """
     if not updates:
         return
@@ -1600,7 +1616,12 @@ def apply_updates(
         )
     parts = [f"{key}:{value}" for key, value in updates.items()]
     result = run_task_command([uuid, "modify", *parts], capture_output=True)
-    for line in filter_modified_zero_lines(result.stdout):
+    stdout_lines = filter_modified_zero_lines(result.stdout)
+    stderr_text = (result.stderr or "").strip()
+    if result.returncode != 0:
+        details = stderr_text or "\n".join(stdout_lines).strip()
+        raise RuntimeError(details or "Taskwarrior update failed.")
+    for line in stdout_lines:
         print(line)
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
@@ -1686,7 +1707,7 @@ def run_ondeck(
         print("No pending moves found.")
         return 0
 
-    dominance_state, _dominance_tiers, dominance_missing = _build_dominance_context(
+    dominance_state, dominance_tiers, dominance_missing = _build_dominance_context(
         pending
     )
     ready = ready_tasks(pending)
@@ -1766,6 +1787,10 @@ def run_ondeck(
         except RuntimeError as exc:
             print(f"twh: ondeck failed: {exc}")
             return 1
+        dominance_state, dominance_tiers, dominance_missing = _build_dominance_context(
+            pending
+        )
+        ready = ready_tasks(pending)
 
     now_value = normalize_review_datetime(datetime.now().astimezone())
     report = build_review_report(
@@ -1775,13 +1800,14 @@ def run_ondeck(
         include_dominated=include_dominated,
         top=top,
         now=now_value,
+        ready=ready,
+        dominance_tiers=dominance_tiers,
+        dominance_missing=dominance_missing,
     )
 
     if not report.candidates:
         print("No ready moves found (or all were filtered).")
         return 0
-
-    dominance_state, _tiers, _missing = _build_dominance_context(pending)
 
     print("\nTop move candidates:")
     for candidate in report.candidates:

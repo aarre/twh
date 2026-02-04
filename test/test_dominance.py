@@ -452,3 +452,43 @@ def test_dominance_missing_uuids_skips_ties():
     missing = dominance.dominance_missing_uuids([move_a, move_b], state)
 
     assert missing == set()
+
+
+@pytest.mark.unit
+def test_dominance_missing_uuids_respects_transitive_paths():
+    """
+    Ensure transitive dominance paths resolve missing relationships.
+
+    Returns
+    -------
+    None
+        This test asserts transitive dominance handling.
+    """
+    move_a = make_move("a", depends=["b"])
+    move_b = make_move("b", depends=["c"])
+    move_c = make_move("c")
+    state = dominance.build_dominance_state([move_a, move_b, move_c])
+
+    missing = dominance.dominance_missing_uuids([move_a, move_b, move_c], state)
+
+    assert missing == set()
+
+
+@pytest.mark.unit
+def test_count_unknown_pairs_counts_only_unrelated():
+    """
+    Ensure unknown pair counts ignore dominated relationships.
+
+    Returns
+    -------
+    None
+        This test asserts unknown pair counting.
+    """
+    move_a = make_move("a", dominates=["b"])
+    move_b = make_move("b")
+    move_c = make_move("c")
+    state = dominance.build_dominance_state([move_a, move_b, move_c])
+
+    total = dominance.count_unknown_pairs([move_a, move_b, move_c], state)
+
+    assert total == 2

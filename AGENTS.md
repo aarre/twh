@@ -40,10 +40,12 @@ Already implemented, among other requirements:
 * `twh graph` uses fixed-width Graphviz boxes and wraps move descriptions across lines.
 * Dominance prompts use A/B/C choices with labels like `[A] Move ID 3: ...` to avoid numeric confusion with move IDs.
 * Dominance should never prompt for move pairs already related by dependencies (including when dependencies are stored as IDs), and prompts should show approximate progress (comparisons complete/remaining).
+* Dominance missing/unknown pair checks use reachability maps to avoid slow ondeck/dominance runs on large move sets.
 * `twh ondeck` outputs a top-move list as one-line summaries (ID, optional `[IN PROGRESS]` marker, description) and defaults to showing 25 candidates.
 * `twh add` suppresses Taskwarrior modify/project completion noise after creating a move (dominance and blocks updates run quietly unless there are errors).
 * Taskwarrior project-completion summary lines are filtered from twh output when relaying command results.
 * Mode prompts use a persistent known-modes list (stored in `~/.config/twh/modes.json`, override with `TWH_MODES_PATH`) with inline autocompletion; newly entered modes are added immediately, prompt examples are alphabetized, and Taskwarrior `uda.mode.values` is extended when present.
+* Taskwarrior modify failures during metadata updates raise errors to avoid silently losing mode entries.
 * `twh ondeck` marks started moves as in progress in its output, using a green highlight for visibility.
 * `twh ondeck` excludes moves whose `start` time is in the future from its report output, but still includes them in the missing-metadata wizard.
 * Before any operation that could modify move descriptions (including writing UDAs that might be misconfigured), halt and ask for guidance. If a required UDA is missing and its absence could overwrite descriptions, stop and ask for guidance before proceeding.
