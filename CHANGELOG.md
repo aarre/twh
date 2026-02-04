@@ -1,3 +1,30 @@
+## 0.18.0 (2026-02-03)
+
+### Features
+
+- persist modes and add completion
+
+### Fixes
+
+- suppress taskwarrior add noise
+- **pyproject**: update pyproject.toml to restore question about additional contextual information
+
+### Performance
+
+- speed up ondeck and surface update errors
+
+### Documentation
+
+- **agents**: commit current status
+- add uv install workflow
+- add install and reinstall steps
+
+### Chores
+
+- renormalize changelog
+- enforce LF line endings
+- ignore backup files and update notes
+
 ## 0.17.0 (2026-02-03)
 
 ### Features
