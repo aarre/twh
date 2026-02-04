@@ -134,6 +134,17 @@ shown in subsequent prompts, and appended to `uda.mode.values` when that
 Taskwarrior setting is present. Mode values that match Taskwarrior core
 attribute/status keywords (for example `wait`) are rejected; choose an
 alternative like `waiting`.
+To list reserved mode values in your environment, compare Taskwarrior core
+attributes against UDAs and avoid status keywords like `pending`, `completed`,
+`deleted`, `recurring`, and `waiting`:
+
+```bash
+task _columns
+task udas
+```
+
+Any core attribute name (from `task _columns`) that is not a UDA (from
+`task udas`) should be treated as reserved mode values.
 You can pass Taskwarrior filter tokens after the command (for example
 `twh ondeck project:work.competitiveness -WAITING`) to limit the scope. The
 ondeck flow expects the `imp`, `urg`, `opt_human`, `diff`, `mode`, `dominates`,
