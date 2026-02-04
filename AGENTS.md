@@ -8,6 +8,7 @@ Update AGENTS.md whenever you learn something new about the project, including r
 ## Test-driven development
 
 Use a test-driven development approach for all changes. Ensure that each change is accompanied by a corresponding test case to validate its functionality. The test cases should be placed in the `test` directory. They should be written in advance of the implementation, according to the TDD process. They should use the `pytest` framework. Annotate test classes, methods, and functions with `@pytest.mark.parametrize` to avoid repetition and with `unit`, `integration`, `slow` and other tags to help organize tests and enable selective execution.
+Always run thorough tests after changes, even when not explicitly requested.
 
 Use doctest tests to help explain the intended behavior of functions and classes as well as supplement the pytest tests.
 
@@ -46,7 +47,10 @@ Already implemented, among other requirements:
 * `twh add` suppresses Taskwarrior modify/project completion noise after creating a move (dominance and blocks updates run quietly unless there are errors).
 * Taskwarrior project-completion summary lines are filtered from twh output when relaying command results.
 * Mode prompts use a persistent known-modes list (stored in `~/.config/twh/modes.json`, override with `TWH_MODES_PATH`) with inline autocompletion; newly entered modes are added immediately, prompt examples are alphabetized, and Taskwarrior `uda.mode.values` is extended when present.
+* Mode prompts reject Taskwarrior core attribute/status keywords (for example `wait`) with a helpful retry prompt.
 * Taskwarrior modify failures during metadata updates raise errors to avoid silently losing mode entries; mode updates are verified via export and raise if missing.
+* Mode updates validate `uda.mode.type` is `string` and, when `uda.mode.values` is set, require the mode to be listed before applying changes; otherwise abort with guidance before modifying moves.
+* Taskwarrior 3.4.2 did not persist `mode:wait` (value cleared); `mode:waiting` worked. Treat `wait` as a problematic value for the `mode` UDA.
 * UDA checks for write operations now rely on Taskwarrior's active config (no taskrc fallback) and consult `task udas` to avoid false positives when ~/.taskrc is not loaded.
 * README now includes WSL-friendly installation and reinstall steps (venv + pipx) for dependencies like prompt_toolkit.
 * README now includes uv-based environment/dependency setup and reinstall steps.
@@ -88,4 +92,6 @@ Already implemented, among other requirements:
 - On WSL, `open_in_browser` converts paths with `wslpath -w`, copies UNC (Linux filesystem) paths into the Windows TEMP directory, and launches Windows Edge directly via `msedge.exe` (falling back to `cmd.exe /c start microsoft-edge:<file-url>` when Edge cannot be located).
 - Do not modify `CHANGELOG.md` directly; it is managed via commitizen and manual edits interfere with the workflow.
 - On Windows/PowerShell, Scoop `coreutils` `head` (Cygwin) can fail with `Couldn't reserve space for cygwin's heap`; prefer `Get-Content -TotalCount N <file>`/`Select-Object -First N`, or install `uutils-coreutils` and ensure it precedes `coreutils` in `PATH`.
+- Tests that assert UDA-missing behavior should monkeypatch `missing_udas` or `get_defined_udas` to avoid relying on the host Taskwarrior config.
+- Tests that exercise mode prompts or `register_mode` should set `TWH_MODES_PATH` to a temp path to avoid writing to `~/.config/twh/modes.json`.
 

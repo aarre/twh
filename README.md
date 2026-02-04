@@ -131,7 +131,9 @@ When the wizard prompts for a mode value, twh keeps a persistent list of known
 modes (stored in `~/.config/twh/modes.json`, override with `TWH_MODES_PATH`) and
 offers inline autocompletion; new modes are immediately added to the list,
 shown in subsequent prompts, and appended to `uda.mode.values` when that
-Taskwarrior setting is present.
+Taskwarrior setting is present. Mode values that match Taskwarrior core
+attribute/status keywords (for example `wait`) are rejected; choose an
+alternative like `waiting`.
 You can pass Taskwarrior filter tokens after the command (for example
 `twh ondeck project:work.competitiveness -WAITING`) to limit the scope. The
 ondeck flow expects the `imp`, `urg`, `opt_human`, `diff`, `mode`, `dominates`,
