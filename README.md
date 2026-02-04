@@ -54,6 +54,7 @@ twh start
 twh stop
 twh time
 twh dominance
+twh criticality
 twh ondeck
 twh defer
 twh diagnose
@@ -118,11 +119,19 @@ in the `dominates` and `dominated_by` UDAs. Use it to establish a dominance
 ordering for your moves with minimal comparisons. Tie selections are persisted
 so the same pair will not be prompted again.
 
-`twh ondeck` scans pending moves for missing metadata (imp/urg/opt_human/diff/mode)
-and missing dominance ordering. If anything is missing, it walks you through
-the wizard to fill metadata (including blocked moves) and collect dominance
-ordering, then recommends the next move by scoring ready moves. If metadata and
-dominance are complete, it emits the report directly. The top-move list is
+`twh criticality` walks you through pairwise time-criticality choices for moves
+in scope and records the resulting ranking in the `criticality` UDA. The
+prompt asks which move becomes pointless first if ignored and assumes
+criticality is transitive, so it minimizes comparisons the same way as
+dominance.
+
+`twh ondeck` scans pending moves for missing metadata
+(imp/urg/opt_human/diff/mode/criticality) and missing dominance ordering. If
+anything is missing, it walks you through the wizard to fill metadata
+(including blocked moves), collect time-criticality rankings, and collect
+dominance ordering, then recommends the next move by scoring ready moves. If
+metadata, criticality, and dominance are complete, it emits the report
+directly. The top-move list is
 rendered in the same table layout and color scheme as the default Taskwarrior
 report, with the ID column placed first and the urgency column relabeled
 `Rank` to show the composite ordering (1 is the highest-ranked move). A
@@ -150,8 +159,9 @@ Any core attribute name (from `task _columns`) that is not a UDA (from
 `task udas`) should be treated as reserved mode values.
 You can pass Taskwarrior filter tokens after the command (for example
 `twh ondeck project:work.competitiveness -WAITING`) to limit the scope. The
-ondeck flow expects the `imp`, `urg`, `opt_human`, `diff`, `mode`, `dominates`,
-and `dominated_by` fields to exist as Taskwarrior UDAs if you want to edit them.
+ondeck flow expects the `imp`, `urg`, `opt_human`, `diff`, `mode`,
+`criticality`, `dominates`, and `dominated_by` fields to exist as Taskwarrior
+UDAs if you want to edit them.
 Manual option values are stored in `opt_human`; legacy `opt` values are still
 accepted for scoring and calibration. When the wizard runs, `twh ondeck`
 automatically runs `twh option --apply` after updates so opt_auto values stay in
@@ -168,8 +178,9 @@ governs the ordering.
 Moves with a `start` time in the future are excluded from the ondeck report
 until that time arrives, but the wizard still prompts for missing metadata on
 all moves in scope.
-If a required UDA is missing, `twh ondeck` and `twh dominance` will stop before
-writing updates to avoid modifying move descriptions.
+If a required UDA is missing, `twh ondeck`, `twh dominance`, and
+`twh criticality` will stop before writing updates to avoid modifying move
+descriptions.
 
 `twh defer` targets the current top move from the same ordering used by
 `twh ondeck`. It prints a summary of that move, then prompts `Defer for how long
@@ -212,7 +223,7 @@ the resulting weights to `~/.config/twh/calibration.toml` (override with
 `TWH_CALIBRATION_PATH`) and, by default, applies updated `opt_auto` values to
 moves in scope (`--no-apply` skips writes).
 
-Taskwarrior UDA setup for ondeck and dominance:
+Taskwarrior UDA setup for ondeck, dominance, and criticality:
 
 ```
 # Dominance edges (comma-separated UUIDs)
@@ -224,6 +235,10 @@ uda.dominated_by.label=<Dom
 # Difficulty (estimated hours of effort)
 uda.diff.type=numeric
 uda.diff.label=Diff(h)
+
+# Time-criticality (derived from pairwise ranking)
+uda.criticality.type=numeric
+uda.criticality.label=Criticality
 
 # Precedence scoring helpers
 uda.enablement.type=numeric

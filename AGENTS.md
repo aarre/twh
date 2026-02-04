@@ -36,7 +36,8 @@ Already implemented, among other requirements:
 * `twh` supports a synthetic `blocks` field for `add`/`modify`, translating it into Taskwarrior `depends` updates without new UDAs.
 * All user-facing output and documentation use "moves" terminology instead of "tasks".
 * `twh dominance` collects dominance ordering with pairwise prompts (transitive, dependency-implied dominance) and writes `dominates`/`dominated_by` UDAs; tie decisions are persisted so they are not re-prompted; `twh ondeck` includes this dominance stage whenever metadata or ordering is incomplete.
-* `twh ondeck` tracks `diff` (difficulty hours) alongside `imp`/`urg`/`opt_human` (legacy `opt` accepted)/`mode`, treats missing dominance/diff as incomplete metadata, and ranks moves by dominance tier before scoring ties.
+* `twh criticality` collects time-criticality ordering with pairwise prompts (transitive) and writes `criticality` UDA values; prompts explain the decay framing and ask which move becomes pointless first if ignored; `twh ondeck` requires criticality before showing the report.
+* `twh ondeck` tracks `diff` (difficulty hours) alongside `imp`/`urg`/`opt_human` (legacy `opt` accepted)/`mode`/`criticality`, treats missing dominance/criticality/diff as incomplete metadata, and ranks moves by dominance tier before scoring ties.
 * `twh ondeck` prompts for missing metadata on all moves in scope (including blocked) whenever metadata or dominance ordering is incomplete.
 * `twh ondeck` formats annotation timestamps into a local, human-readable date-time string (US Eastern).
 * Suppress Taskwarrior noise like `Modified 0 tasks.` in `twh` outputs.
@@ -74,7 +75,7 @@ Already implemented, among other requirements:
 
 ## Project notes
 
-- `twh` delegates unknown commands (including no-arg invocation) to Taskwarrior; `list`, `reverse`, `tree`, `graph`, `simple`, `ondeck`, `defer`, `diagnose`, `option`, `calibrate`, `start`, `stop`, `time`, and `dominance` are handled internally.
+- `twh` delegates unknown commands (including no-arg invocation) to Taskwarrior; `list`, `reverse`, `tree`, `graph`, `simple`, `ondeck`, `defer`, `diagnose`, `option`, `calibrate`, `start`, `stop`, `time`, `dominance`, and `criticality` are handled internally.
 - `twh add` uses an interactive prompt sequence and still augments new moves with the active Taskwarrior context's `project:` or tag filters (from `context.<name>`), without overriding explicit `project:` or `+tag` inputs.
 - Running tests directly from the repo root needs `PYTHONPATH=src` (or an editable install) so `import twh` resolves the package.
 - Prefer `.venv/bin/python -m pytest` over `/usr/bin/pytest`; the system pytest can fail with pluggy mismatch (`warn_on_impl_args`) and Apport `/var/crash` permission errors.
@@ -88,7 +89,7 @@ Already implemented, among other requirements:
 - Dependency values are normalized by stripping leading `+`/`-` prefixes before writing `depends` updates.
 - `twh` delegates to Taskwarrior via `exec` when no internal handling is needed, and builds the Typer app lazily to reduce startup overhead.
 - `twh simple` creates a Taskwarrior `report.simple` (if missing) by copying the default report and replacing the description column with `description.count`, then runs `task simple` directly; on WSL it disables pager/confirmations/hooks unless `TWH_SIMPLE_PAGER=1` is set, strips `limit:page` from the simple report, and runs with stdin closed to avoid interactive pauses.
-- `twh ondeck` inspects pending moves for missing `imp`, `urg`, `opt_human` (legacy `opt` accepted), `diff`, `mode`, and dominance ordering (ties persisted via `dominated_by`); when anything is missing it runs the wizard for all moves in scope (including blocked), auto-runs `twh option --apply` after updates, and recommends the next move using dominance tiers before the scoring model; mode filters (`--mode`, `--strict-mode`) and dominance UDAs influence candidate selection, extra Taskwarrior filter tokens after `twh ondeck` scope the set, and filtered runs still apply the wizard even for blocked moves in scope.
+- `twh ondeck` inspects pending moves for missing `imp`, `urg`, `opt_human` (legacy `opt` accepted), `diff`, `mode`, `criticality`, and dominance ordering (ties persisted via `dominated_by`); when anything is missing it runs the wizard for all moves in scope (including blocked), collects criticality rankings, auto-runs `twh option --apply` after updates, and recommends the next move using dominance tiers before the scoring model; mode filters (`--mode`, `--strict-mode`) and dominance UDAs influence candidate selection, extra Taskwarrior filter tokens after `twh ondeck` scope the set, and filtered runs still apply the wizard even for blocked moves in scope.
 - `twh option` calibrates option value weights from manual `opt_human` ratings (falling back to `opt`), predicts `opt_auto` values using dependency structure and metadata, and `--apply` also copies legacy `opt` values into `opt_human` when missing.
 - `twh calibrate` stores precedence/option calibration weights in `~/.config/twh/calibration.toml`, uses pairwise A/B choices to tune precedence weights, and can apply opt_auto updates after calibrating.
 - `twh start`/`twh stop` log time entries (uuid/description/project/tags/mode/start/end) to `~/.task/twh-time.db`, auto-stop other active moves on start, and `twh time` reports by task/project/tag/mode with day/week/month/year/range bucketing plus date filtering and record edits.

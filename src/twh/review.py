@@ -87,6 +87,8 @@ class ReviewTask:
         Auto-calculated option value estimate.
     diff : Optional[float]
         Estimated difficulty in hours.
+    criticality : Optional[float]
+        Time-criticality rating (0-10) derived from ranking.
     enablement : Optional[float]
         Enablement rating (0-10) for unlocking downstream moves.
     blocker_relief : Optional[float]
@@ -133,6 +135,7 @@ class ReviewTask:
     dominated_by: List[str] = field(default_factory=list)
     annotations: List[str] = field(default_factory=list)
     raw: Dict[str, Any] = field(default_factory=dict)
+    criticality: Optional[float] = None
 
     @staticmethod
     def from_json(payload: Dict[str, Any]) -> "ReviewTask":
@@ -192,6 +195,7 @@ class ReviewTask:
             opt_human=parse_float("opt_human"),
             opt_auto=parse_float("opt_auto"),
             diff=parse_float("diff"),
+            criticality=parse_float("criticality"),
             enablement=parse_float("enablement"),
             blocker_relief=parse_float("blocker_relief"),
             estimate_hours=parse_float("estimate_hours"),
@@ -742,7 +746,7 @@ def missing_fields(task: ReviewTask) -> Tuple[str, ...]:
     --------
     >>> move = ReviewTask("u1", 1, "x", None, [], None, 2, None)
     >>> missing_fields(move)
-    ('imp', 'opt_human', 'diff', 'mode')
+    ('imp', 'opt_human', 'diff', 'mode', 'criticality')
     """
     missing: List[str] = []
     if task.imp is None:
@@ -755,6 +759,8 @@ def missing_fields(task: ReviewTask) -> Tuple[str, ...]:
         missing.append("diff")
     if not task.mode:
         missing.append("mode")
+    if task.criticality is None:
+        missing.append("criticality")
     return tuple(missing)
 
 
@@ -1164,7 +1170,8 @@ def score_task(
     precedence: float = 0.0,
 ) -> Tuple[float, Dict[str, float]]:
     """
-    Score a move based on importance, urgency, option value, difficulty, and precedence.
+    Score a move based on importance, urgency, option value, difficulty, criticality,
+    and precedence.
 
     Parameters
     ----------
@@ -1187,11 +1194,17 @@ def score_task(
         missing_penalty *= 0.96
     if task.diff is None:
         missing_penalty *= 0.95
+    if task.criticality is None:
+        missing_penalty *= 0.95
 
     imp_days = max(0, task.imp or 0)
     urg_days = max(0, task.urg or 0)
     opt_value = max(0.0, min(10.0, effective_option_value(task)))
     diff_hours = max(0.0, float(task.diff) if task.diff is not None else 0.0)
+    crit_value = max(
+        0.0,
+        min(10.0, float(task.criticality) if task.criticality is not None else 0.0),
+    )
 
     imp_score = math.log1p(imp_days)
     urg_hours = max(urg_days * 24.0, 1.0)
@@ -1199,6 +1212,7 @@ def score_task(
     urg_score = (1.0 / (urg_days + 1.0)) * (1.0 + time_pressure)
     opt_score = opt_value / 10.0
     diff_ease = 1.0 / (diff_hours + 1.0)
+    crit_score = crit_value / 10.0
 
     mode_mult = mode_multiplier(current_mode, task.mode)
     base = (
@@ -1206,6 +1220,7 @@ def score_task(
         + (1.0 * imp_score)
         + (0.9 * opt_score)
         + (0.25 * diff_ease)
+        + (0.3 * crit_score)
     )
     o_mult = 1.0 + max(0.0, precedence)
     total = base * mode_mult * missing_penalty * o_mult
@@ -1215,6 +1230,7 @@ def score_task(
         "urg_score": urg_score,
         "opt_score": opt_score,
         "diff_score": diff_ease,
+        "crit_score": crit_score,
         "o_score": precedence,
         "o_mult": o_mult,
         "time_pressure": time_pressure,
@@ -1246,19 +1262,22 @@ def format_task_rationale(task: ReviewTask, components: Dict[str, float]) -> str
     manual = manual_option_value(task)
     opt = "?" if manual is None else f"{manual:g}"
     diff = task.diff if task.diff is not None else "?"
+    crit = task.criticality if task.criticality is not None else "?"
     mode = task.mode or "-"
     proj = task.project or "-"
     move_id = str(task.id) if task.id is not None else task.uuid[:8]
     marker = started_marker(task)
     return (
         f"[{move_id}]{marker} {task.description}\n"
-        f"  project={proj} mode={mode} imp={imp}d urg={urg}d opt={opt} diff={diff}h\n"
+        f"  project={proj} mode={mode} imp={imp}d urg={urg}d opt={opt} "
+        f"diff={diff}h crit={crit}\n"
         "  "
         f"score={components['total']:.3f} "
         f"(urg={components['urg_score']:.3f}, "
         f"imp={components['imp_score']:.3f}, "
         f"opt={components['opt_score']:.2f}, "
         f"diff={components['diff_score']:.2f}, "
+        f"crit={components['crit_score']:.2f}, "
         f"o={components['o_score']:.2f}, "
         f"mode*{components['mode_mult']:.2f}, "
         f"spec*{components['missing_mult']:.2f})"
@@ -1918,6 +1937,9 @@ def run_ondeck(
     dominance_state: Optional[DominanceState] = None
     dominance_tiers: Optional[List[List[ReviewTask]]] = None
     dominance_missing: set[str] = set()
+    criticality_missing: set[str] = {
+        task.uuid for task in pending if task.criticality is None
+    }
     missing = collect_missing_metadata(
         pending,
         ready,
@@ -1950,7 +1972,10 @@ def run_ondeck(
     option_applied = False
     if needs_wizard:
         for item in missing:
-            if all(field == "dominance" for field in item.missing):
+            if all(
+                field in {"dominance", "criticality"}
+                for field in item.missing
+            ):
                 continue
             move = item.task
             move_id = str(move.id) if move.id is not None else move.uuid[:8]
@@ -1970,6 +1995,28 @@ def run_ondeck(
         dominance_state, dominance_missing = _build_dominance_state_and_missing(
             pending
         )
+
+    if criticality_missing:
+        from . import criticality as criticality_module
+
+        state = criticality_module.build_criticality_state(pending)
+        tiers = criticality_module.sort_into_tiers(
+            pending,
+            state,
+            chooser=criticality_module.make_progress_chooser(
+                pending,
+                state,
+                input_func=input_func,
+            ),
+        )
+        updates = criticality_module.build_criticality_updates(tiers)
+        try:
+            criticality_module.apply_criticality_updates(updates)
+        except RuntimeError as exc:
+            print(f"twh: ondeck failed: {exc}")
+            return 1
+        updated = True
+        print(f"Criticality updated for {len(pending)} moves.")
 
     if needs_wizard and dominance_missing:
         from . import dominance as dominance_module

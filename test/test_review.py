@@ -19,6 +19,7 @@ import twh.option_value as option_value
         "expected_dominates",
         "expected_dominated_by",
         "expected_imp",
+        "expected_criticality",
         "expected_diff",
         "expected_mode",
         "expected_annotations",
@@ -33,6 +34,7 @@ import twh.option_value as option_value
                 "dominates": "c, d",
                 "dominated_by": "e, f",
                 "imp": "5",
+                "criticality": "8.5",
                 "diff": "4.5",
                 "mode": " editorial ",
                 "annotations": [
@@ -44,6 +46,7 @@ import twh.option_value as option_value
             ["c", "d"],
             ["e", "f"],
             5,
+            8.5,
             4.5,
             "editorial",
             ["Note one", "Note two"],
@@ -57,12 +60,14 @@ import twh.option_value as option_value
                 "dominates": ["z"],
                 "dominated_by": ["w"],
                 "imp": None,
+                "criticality": None,
                 "diff": None,
                 "mode": None,
             },
             ["x", "y"],
             ["z"],
             ["w"],
+            None,
             None,
             None,
             None,
@@ -77,6 +82,7 @@ import twh.option_value as option_value
                 "dominates": None,
                 "dominated_by": None,
                 "imp": "bad",
+                "criticality": "bad",
                 "diff": "bad",
                 "mode": "",
                 "annotations": [{"description": ""}],
@@ -84,6 +90,7 @@ import twh.option_value as option_value
             [],
             [],
             [],
+            None,
             None,
             None,
             None,
@@ -98,6 +105,7 @@ def test_review_task_from_json_parses_fields(
     expected_dominates,
     expected_dominated_by,
     expected_imp,
+    expected_criticality,
     expected_diff,
     expected_mode,
     expected_annotations,
@@ -115,6 +123,8 @@ def test_review_task_from_json_parses_fields(
         Expected dominates list.
     expected_imp : int | None
         Expected importance value.
+    expected_criticality : float | None
+        Expected criticality value.
     expected_mode : str | None
         Expected normalized mode.
 
@@ -128,6 +138,7 @@ def test_review_task_from_json_parses_fields(
     assert task.dominates == expected_dominates
     assert task.dominated_by == expected_dominated_by
     assert task.imp == expected_imp
+    assert task.criticality == expected_criticality
     assert task.diff == expected_diff
     assert task.mode == expected_mode
     assert task.annotations == expected_annotations
@@ -342,6 +353,7 @@ def test_collect_missing_metadata_orders_ready_first():
             urg=3,
             opt=4,
             diff=2.0,
+            criticality=5.0,
             mode="editorial",
             dominates=[],
             raw={},
@@ -356,6 +368,7 @@ def test_collect_missing_metadata_orders_ready_first():
             urg=None,
             opt=4,
             diff=1.0,
+            criticality=5.0,
             mode="editorial",
             dominates=[],
             raw={},
@@ -370,6 +383,7 @@ def test_collect_missing_metadata_orders_ready_first():
             urg=2,
             opt=None,
             diff=None,
+            criticality=5.0,
             mode=None,
             dominates=[],
             raw={},
@@ -467,12 +481,58 @@ def test_missing_fields_accepts_opt_human():
         opt=None,
         opt_human=6,
         diff=2.0,
+        criticality=5.0,
         mode="analysis",
         dominates=[],
         raw={},
     )
 
     assert "opt_human" not in review.missing_fields(task)
+
+
+@pytest.mark.parametrize(
+    ("criticality", "expected_missing"),
+    [
+        (None, True),
+        (4.0, False),
+    ],
+)
+@pytest.mark.unit
+def test_missing_fields_requires_criticality(criticality, expected_missing):
+    """
+    Ensure criticality is required for ondeck metadata completeness.
+
+    Parameters
+    ----------
+    criticality : float | None
+        Criticality value to set on the move.
+    expected_missing : bool
+        True when criticality should be flagged as missing.
+
+    Returns
+    -------
+    None
+        This test asserts criticality completeness.
+    """
+    task = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Move",
+        project=None,
+        depends=[],
+        imp=2,
+        urg=3,
+        opt=4,
+        diff=2.0,
+        criticality=criticality,
+        mode="analysis",
+        dominates=[],
+        raw={},
+    )
+
+    missing = review.missing_fields(task)
+
+    assert ("criticality" in missing) is expected_missing
 
 
 @pytest.mark.unit
@@ -496,6 +556,7 @@ def test_collect_missing_metadata_includes_dominance():
             urg=1,
             opt=1,
             diff=1.0,
+            criticality=6.0,
             mode="editorial",
             dominates=[],
             raw={},
@@ -510,6 +571,7 @@ def test_collect_missing_metadata_includes_dominance():
             urg=1,
             opt=1,
             diff=1.0,
+            criticality=6.0,
             mode="editorial",
             dominates=[],
             raw={},
@@ -872,6 +934,53 @@ def test_score_task_uses_opt_auto_when_opt_missing():
     _score, components = review.score_task(task, current_mode=None)
 
     assert components["opt_score"] == pytest.approx(0.8)
+
+
+@pytest.mark.unit
+def test_score_task_prefers_higher_criticality():
+    """
+    Ensure criticality influences the composite score.
+
+    Returns
+    -------
+    None
+        This test asserts criticality-based scoring.
+    """
+    high = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="High criticality",
+        project=None,
+        depends=[],
+        imp=2,
+        urg=2,
+        opt=5,
+        diff=1.0,
+        criticality=9.0,
+        mode=None,
+        dominates=[],
+        raw={},
+    )
+    low = review.ReviewTask(
+        uuid="u2",
+        id=2,
+        description="Low criticality",
+        project=None,
+        depends=[],
+        imp=2,
+        urg=2,
+        opt=5,
+        diff=1.0,
+        criticality=2.0,
+        mode=None,
+        dominates=[],
+        raw={},
+    )
+
+    high_score, _ = review.score_task(high, current_mode=None)
+    low_score, _ = review.score_task(low, current_mode=None)
+
+    assert high_score > low_score
 
 
 @pytest.mark.unit
@@ -1781,6 +1890,7 @@ def test_build_review_report_combines_missing_and_candidates():
             urg=1,
             opt=2,
             diff=2.0,
+            criticality=5.0,
             mode="editorial",
             dominates=[],
             raw={},
@@ -1795,6 +1905,7 @@ def test_build_review_report_combines_missing_and_candidates():
             urg=2,
             opt=3,
             diff=1.0,
+            criticality=5.0,
             mode="editorial",
             dominates=[],
             raw={},
@@ -1992,6 +2103,7 @@ def test_run_ondeck_skips_wizard_when_complete(monkeypatch):
         urg=1,
         opt=1,
         diff=1.0,
+        criticality=6.0,
         mode="analysis",
         dominates=[],
         raw={},
@@ -2056,6 +2168,7 @@ def test_run_ondeck_includes_filtered_non_ready(monkeypatch):
             urg=None,
             opt=None,
             diff=None,
+            criticality=5.0,
             mode=None,
             dominates=[],
             raw={},
@@ -2070,6 +2183,7 @@ def test_run_ondeck_includes_filtered_non_ready(monkeypatch):
             urg=1,
             opt=1,
             diff=1.0,
+            criticality=5.0,
             mode="editorial",
             dominates=[],
             raw={},
@@ -2128,6 +2242,7 @@ def test_run_ondeck_includes_non_ready_without_filters(monkeypatch):
             urg=None,
             opt=None,
             diff=None,
+            criticality=5.0,
             mode=None,
             dominates=[],
             raw={},
@@ -2142,6 +2257,7 @@ def test_run_ondeck_includes_non_ready_without_filters(monkeypatch):
             urg=None,
             opt=None,
             diff=None,
+            criticality=5.0,
             mode=None,
             dominates=[],
             raw={},
@@ -2203,6 +2319,7 @@ def test_run_ondeck_auto_applies_option_values(monkeypatch):
             urg=3,
             opt=None,
             diff=1.0,
+            criticality=6.0,
             mode="analysis",
             dominates=[],
             raw={},
@@ -2282,6 +2399,7 @@ def test_run_ondeck_collects_dominance(monkeypatch):
             urg=1,
             opt=1,
             diff=1.0,
+            criticality=6.0,
             mode="editorial",
             dominates=[],
             raw={},
@@ -2296,6 +2414,7 @@ def test_run_ondeck_collects_dominance(monkeypatch):
             urg=1,
             opt=1,
             diff=1.0,
+            criticality=6.0,
             mode="editorial",
             dominates=[],
             raw={},
@@ -2317,7 +2436,11 @@ def test_run_ondeck_collects_dominance(monkeypatch):
         "build_review_report",
         lambda *_args, **_kwargs: review.ReviewReport(missing=[], candidates=[]),
     )
-    monkeypatch.setattr(review, "interactive_fill_missing", lambda *_args, **_kwargs: {})
+
+    def unexpected_fill(*_args, **_kwargs):
+        raise AssertionError("Metadata wizard should not run for criticality-only moves.")
+
+    monkeypatch.setattr(review, "interactive_fill_missing", unexpected_fill)
     monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
 
     calls = {}
@@ -2351,6 +2474,98 @@ def test_run_ondeck_collects_dominance(monkeypatch):
     assert calls["sort"] == ["u1", "u2"]
     assert calls["build"] == [["u1"], ["u2"]]
     assert calls["apply"] == {}
+
+
+@pytest.mark.unit
+def test_run_ondeck_collects_criticality(monkeypatch):
+    """
+    Ensure ondeck triggers criticality collection when ratings are missing.
+
+    Returns
+    -------
+    None
+        This test asserts the criticality stage is executed.
+    """
+    tasks = [
+        review.ReviewTask(
+            uuid="u1",
+            id=1,
+            description="Move 1",
+            project=None,
+            depends=[],
+            imp=1,
+            urg=1,
+            opt=1,
+            diff=1.0,
+            criticality=None,
+            mode="editorial",
+            dominates=[],
+            raw={},
+        ),
+        review.ReviewTask(
+            uuid="u2",
+            id=2,
+            description="Move 2",
+            project=None,
+            depends=[],
+            imp=1,
+            urg=1,
+            opt=1,
+            diff=1.0,
+            criticality=None,
+            mode="editorial",
+            dominates=[],
+            raw={},
+        ),
+    ]
+
+    monkeypatch.setattr(review, "load_pending_tasks", lambda filters=None: tasks)
+    monkeypatch.setattr(
+        review,
+        "_build_dominance_context",
+        lambda pending: ({}, [], set()),
+    )
+    monkeypatch.setattr(
+        review,
+        "build_review_report",
+        lambda *_args, **_kwargs: review.ReviewReport(missing=[], candidates=[]),
+    )
+    monkeypatch.setattr(review, "interactive_fill_missing", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
+
+    import twh.criticality as criticality
+
+    calls = {}
+
+    def fake_sort_into_tiers(pending, state, chooser):
+        calls["sort"] = [move.uuid for move in pending]
+        return [[pending[0]], [pending[1]]]
+
+    def fake_build_updates(tiers):
+        calls["build"] = [[move.uuid for move in tier] for tier in tiers]
+        return {"u1": 10.0, "u2": 0.0}
+
+    def fake_apply_updates(updates):
+        calls["apply"] = updates
+
+    monkeypatch.setattr(criticality, "sort_into_tiers", fake_sort_into_tiers)
+    monkeypatch.setattr(criticality, "build_criticality_updates", fake_build_updates)
+    monkeypatch.setattr(criticality, "apply_criticality_updates", fake_apply_updates)
+
+    exit_code = review.run_ondeck(
+        mode=None,
+        limit=20,
+        top=5,
+        strict_mode=False,
+        include_dominated=False,
+        filters=None,
+        input_func=lambda _prompt: "",
+    )
+
+    assert exit_code == 0
+    assert calls["sort"] == ["u1", "u2"]
+    assert calls["build"] == [["u1"], ["u2"]]
+    assert calls["apply"] == {"u1": 10.0, "u2": 0.0}
 
 
 @pytest.mark.unit

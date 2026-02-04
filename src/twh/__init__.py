@@ -2599,6 +2599,21 @@ def build_app():
         raise typer.Exit(code=exit_code)
 
     @app.command(
+        "criticality",
+        help="Collect time-criticality ordering for moves.",
+        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    )
+    def criticality_cmd(ctx: typer.Context):
+        from . import criticality as criticality_module
+
+        try:
+            exit_code = criticality_module.run_criticality(filters=list(ctx.args))
+        except FileNotFoundError:
+            print("Error: `task` command not found.", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
+    @app.command(
         "ondeck",
         context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
     )
