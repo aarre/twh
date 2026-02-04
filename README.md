@@ -124,9 +124,11 @@ the wizard to fill metadata (including blocked moves) and collect dominance
 ordering, then recommends the next move by scoring ready moves. If metadata and
 dominance are complete, it emits the report directly. The top-move list is
 rendered in the same table layout and color scheme as the default Taskwarrior
-report; the urgency column shows the ondeck score instead. You can show more
-candidates by default (25; use `--top` to override). Started moves are labeled
-`[IN PROGRESS]` with a green highlight. Use `--mode editorial`
+report, with the ID column placed first and the urgency column relabeled
+`Rank` to show the composite ordering (1 is the highest-ranked move). A
+separate `Score` column shows the underlying numeric score used in ranking.
+You can show more candidates by default (25; use `--top` to override). Started
+moves are labeled `[IN PROGRESS]` with a green highlight. Use `--mode editorial`
 (plus `--strict-mode` if desired) to bias recommendations to your current mode.
 When the wizard prompts for a mode value, twh keeps a persistent list of known
 modes (stored in `~/.config/twh/modes.json`, override with `TWH_MODES_PATH`) and

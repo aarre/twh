@@ -1638,6 +1638,8 @@ def label_for_column(column: str, label_map: Dict[str, str]) -> str:
         "priority": "Pri",
         "due": "Due",
         "urgency": "Urg",
+        "rank": "Rank",
+        "score": "Score",
         "status": "Status",
         "tags": "Tags",
         "depends": "Deps",
@@ -1700,6 +1702,14 @@ def format_task_field(task: Dict, column: str, uuid_to_id: Dict[str, Optional[in
     if col == "urgency":
         urgency = task.get("urgency")
         return f"{urgency:.2f}" if isinstance(urgency, (int, float)) else ""
+    if col == "rank":
+        rank_value = task.get("rank")
+        if rank_value is None:
+            return ""
+        return str(rank_value)
+    if col == "score":
+        score_value = task.get("score")
+        return f"{score_value:.2f}" if isinstance(score_value, (int, float)) else ""
     if col == "tags":
         tags = task.get("tags") or []
         return ",".join(tags) if isinstance(tags, list) else str(tags)

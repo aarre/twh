@@ -5,6 +5,8 @@
 
 Update AGENTS.md whenever you learn something new about the project, including requirements, my preferences, design decisions, techiques that you tried and didn't work, and so on.
 
+When the user says "commit", create the git commit using coherent patches (logical hunks) and a conventional commit message.
+
 ## Test-driven development
 
 Use a test-driven development approach for all changes. Ensure that each change is accompanied by a corresponding test case to validate its functionality. The test cases should be placed in the `test` directory. They should be written in advance of the implementation, according to the TDD process. They should use the `pytest` framework. Annotate test classes, methods, and functions with `@pytest.mark.parametrize` to avoid repetition and with `unit`, `integration`, `slow` and other tags to help organize tests and enable selective execution.
@@ -43,7 +45,7 @@ Already implemented, among other requirements:
 * Dominance should never prompt for move pairs already related by dependencies (including when dependencies are stored as IDs), and prompts should show approximate progress (comparisons complete/remaining).
 * Dominance missing/unknown pair checks use reachability maps to avoid slow ondeck/dominance runs on large move sets.
 * `twh ondeck` defers dominance-missing checks until after metadata prompts when any metadata is missing, so the first prompt appears quickly.
-* `twh ondeck` outputs its top-move list using the default Taskwarrior report columns/colors and shows the ondeck score in place of urgency; it defaults to showing 25 candidates.
+* `twh ondeck` outputs its top-move list using the default Taskwarrior report columns/colors, but places the ID column first and relabels urgency to `Rank` for the composite ordering (1 is highest) while adding a numeric `Score` column; it defaults to showing 25 candidates.
 * `twh add` suppresses Taskwarrior modify/project completion noise after creating a move (dominance and blocks updates run quietly unless there are errors).
 * Taskwarrior project-completion summary lines are filtered from twh output when relaying command results.
 * Mode prompts use a persistent known-modes list (stored in `~/.config/twh/modes.json`, override with `TWH_MODES_PATH`) with inline autocompletion; newly entered modes are added immediately, prompt examples are alphabetized, and Taskwarrior `uda.mode.values` is extended when present.

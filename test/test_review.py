@@ -3,6 +3,7 @@ Tests for the ondeck command logic.
 """
 
 import doctest
+import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -1172,12 +1173,22 @@ def test_format_ondeck_candidates_table(start, expect_marker, expect_color):
         labels=["Description", "ID", "Urg"],
     )
 
-    assert lines[0].startswith("Description")
+    header = lines[0]
+    assert header.lstrip().startswith("ID")
+    assert "Rank" in header
+    assert "Score" in header
     assert lines[1].startswith("-")
 
     data_line = lines[2]
-    assert "Move A" in data_line
-    assert "9.88" in data_line
+    clean_line = data_line
+    if data_line.startswith(review.IN_PROGRESS_COLOR):
+        clean_line = data_line[len(review.IN_PROGRESS_COLOR):]
+    clean_line = clean_line.replace(review.ANSI_RESET, "")
+    parts = re.split(r"\s{2,}", clean_line.strip())
+    assert parts[0] == "1"
+    assert "Move A" in parts[1]
+    assert parts[-2] == "1"
+    assert parts[-1] == "9.88"
     assert "1.23" not in data_line
     assert (review.IN_PROGRESS_LABEL in data_line) is expect_marker
     assert data_line.startswith(review.IN_PROGRESS_COLOR) is expect_color

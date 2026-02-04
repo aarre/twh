@@ -1328,7 +1328,10 @@ def format_dominance_lines(
     return lines
 
 
-def _build_ondeck_display_payload(candidate: ScoredTask) -> Dict[str, Any]:
+def _build_ondeck_display_payload(
+    candidate: ScoredTask,
+    rank: int,
+) -> Dict[str, Any]:
     """
     Build a Taskwarrior-style payload for ondeck display rows.
 
@@ -1352,12 +1355,61 @@ def _build_ondeck_display_payload(candidate: ScoredTask) -> Dict[str, Any]:
     if marker:
         description = f"{marker} {description}" if description else marker
     payload["description"] = description
-    payload["urgency"] = candidate.score
+    payload["rank"] = rank
+    payload["score"] = candidate.score
     if "project" not in payload and task.project is not None:
         payload["project"] = task.project
     if "depends" not in payload and task.depends:
         payload["depends"] = task.depends
     return payload
+
+
+def _prepare_ondeck_columns(
+    columns: List[str],
+    labels: Optional[List[str]],
+) -> Tuple[List[str], List[str]]:
+    """
+    Normalize ondeck columns so ID is first and urgency is labeled as score.
+
+    Parameters
+    ----------
+    columns : List[str]
+        Column names to normalize.
+    labels : Optional[List[str]]
+        Column labels to normalize.
+
+    Returns
+    -------
+    Tuple[List[str], List[str]]
+        Normalized columns and labels.
+    """
+    normalized = [col.lower() for col in columns]
+    if not labels or len(labels) != len(normalized):
+        from . import label_for_column
+
+        labels = [label_for_column(col, {}) for col in normalized]
+    label_map = {col: label for col, label in zip(normalized, labels)}
+    normalized = ["rank" if col == "urgency" else col for col in normalized]
+    if "id" not in normalized:
+        normalized.insert(0, "id")
+    if "rank" not in normalized:
+        normalized.append("rank")
+    if "score" not in normalized:
+        normalized.append("score")
+    ordered = ["id"] + [col for col in normalized if col != "id"]
+    ordered_labels: List[str] = []
+    for col in ordered:
+        label = label_map.get(col)
+        if not label:
+            from . import label_for_column
+
+            label = label_for_column(col, {})
+        if col == "rank":
+            label = "Rank"
+        if col == "score":
+            label = "Score"
+        ordered_labels.append(label)
+    return ordered, ordered_labels
 
 
 def format_ondeck_candidates(
@@ -1403,8 +1455,14 @@ def format_ondeck_candidates(
     ...     columns=["description", "id", "urgency"],
     ...     labels=["Description", "ID", "Urg"],
     ... )
-    >>> lines[2]
-    'Move A       1   12.35'
+    >>> lines[0].lstrip().startswith("ID")
+    True
+    >>> "Rank" in lines[0]
+    True
+    >>> "Score" in lines[0]
+    True
+    >>> lines[2].strip().startswith("1")
+    True
     """
     if not candidates:
         return []
@@ -1412,8 +1470,12 @@ def format_ondeck_candidates(
 
     if not columns or not labels:
         columns, labels = get_taskwarrior_columns_and_labels()
+    columns, labels = _prepare_ondeck_columns(columns, labels)
     uuid_to_id = {item.task.uuid: item.task.id for item in candidates}
-    rows = [(_build_ondeck_display_payload(item), "") for item in candidates]
+    rows = [
+        (_build_ondeck_display_payload(item, rank=index + 1), "")
+        for index, item in enumerate(candidates)
+    ]
     return render_task_table(rows, columns, labels, uuid_to_id)
 
 
