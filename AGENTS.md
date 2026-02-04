@@ -47,6 +47,7 @@ Already implemented, among other requirements:
 * Mode prompts use a persistent known-modes list (stored in `~/.config/twh/modes.json`, override with `TWH_MODES_PATH`) with inline autocompletion; newly entered modes are added immediately, prompt examples are alphabetized, and Taskwarrior `uda.mode.values` is extended when present.
 * Taskwarrior modify failures during metadata updates raise errors to avoid silently losing mode entries.
 * README now includes WSL-friendly installation and reinstall steps (venv + pipx) for dependencies like prompt_toolkit.
+* README now includes uv-based environment/dependency setup and reinstall steps.
 * `twh ondeck` marks started moves as in progress in its output, using a green highlight for visibility.
 * Enforce LF line endings via `.gitattributes` and keep `core.autocrlf=input` for WSL development to avoid CRLF warnings.
 * `twh ondeck` excludes moves whose `start` time is in the future from its report output, but still includes them in the missing-metadata wizard.

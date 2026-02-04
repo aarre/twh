@@ -4,7 +4,22 @@ Hierarchical Taskwarrior move views and Graphviz dependency graphs.
 
 ## Installation
 
-Local development (venv, Python 3.12):
+Local development (uv, Python 3.12):
+
+```bash
+cd /mnt/d/local/src/py/twh
+uv venv --python=python3.12
+source .venv/bin/activate
+uv pip install -e .
+```
+
+If uv creates a venv without pip, run:
+
+```bash
+python -m ensurepip --upgrade
+```
+
+Local development (standard venv, Python 3.12):
 
 ```bash
 cd /mnt/d/local/src/py/twh
@@ -19,7 +34,13 @@ System install via pipx (WSL-friendly):
 python3.12 -m pipx install -e /mnt/d/local/src/py/twh
 ```
 
-Reinstall after dependency changes (for example, prompt_toolkit updates):
+Reinstall after dependency changes (uv venv):
+
+```bash
+uv pip install -e .
+```
+
+Reinstall after dependency changes (pipx):
 
 ```bash
 python3.12 -m pipx reinstall twh
