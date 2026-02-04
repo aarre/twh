@@ -95,7 +95,7 @@ def test_best_mode_completion(prefix, known, expected):
 
 
 @pytest.mark.unit
-def test_modes_doctest_examples():
+def test_modes_doctest_examples(monkeypatch, tmp_path):
     """
     Run doctest examples embedded in modes helpers.
 
@@ -104,8 +104,39 @@ def test_modes_doctest_examples():
     None
         This test asserts doctest coverage for modes helpers.
     """
+    monkeypatch.setenv(modes.MODE_ENV_VAR, str(tmp_path / "modes.json"))
     results = doctest.testmod(modes)
     assert results.failed == 0
+
+
+@pytest.mark.parametrize(
+    ("value", "reserved", "expected"),
+    [
+        ("wait", ["wait", "pending"], True),
+        ("pending", ["wait", "pending"], True),
+        ("analysis", ["wait", "pending"], False),
+    ],
+)
+@pytest.mark.unit
+def test_is_reserved_mode_value(value, reserved, expected):
+    """
+    Ensure reserved mode values are detected.
+
+    Parameters
+    ----------
+    value : str
+        Mode value to check.
+    reserved : list[str]
+        Reserved values to compare.
+    expected : bool
+        Expected reservation status.
+
+    Returns
+    -------
+    None
+        This test asserts reserved detection.
+    """
+    assert modes.is_reserved_mode_value(value, reserved=reserved) is expected
 
 
 @pytest.mark.parametrize(

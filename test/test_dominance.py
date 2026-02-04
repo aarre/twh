@@ -404,6 +404,11 @@ def test_apply_dominance_updates_requires_udas(tmp_path, monkeypatch):
     taskrc = tmp_path / ".taskrc"
     taskrc.write_text("", encoding="utf-8")
     monkeypatch.setenv("TASKRC", str(taskrc))
+    monkeypatch.setattr(
+        dominance,
+        "missing_udas",
+        lambda _fields, **_kwargs: ["dominates", "dominated_by"],
+    )
     updates = {
         "a": dominance.DominanceUpdate(dominates=["b"], dominated_by=[]),
     }

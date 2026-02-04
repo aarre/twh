@@ -7,6 +7,7 @@ import subprocess
 import pytest
 import twh
 import twh.dominance as dominance
+import twh.modes as modes
 
 
 @pytest.mark.unit
@@ -135,7 +136,7 @@ def test_build_add_args_orders_metadata(add_input, expected_args):
 
 
 @pytest.mark.unit
-def test_run_interactive_add_runs_add_blocks_and_dominance(monkeypatch):
+def test_run_interactive_add_runs_add_blocks_and_dominance(monkeypatch, tmp_path):
     """
     Ensure interactive add runs task add, blocks updates, and dominance.
 
@@ -195,8 +196,9 @@ def test_run_interactive_add_runs_add_blocks_and_dominance(monkeypatch):
         dominance_calls.append(_kwargs)
         return 0
 
+    monkeypatch.setenv(modes.MODE_ENV_VAR, str(tmp_path / "modes.json"))
     monkeypatch.setattr(twh, "run_task_command", fake_run_task_command)
-    monkeypatch.setattr(twh, "missing_udas", lambda _fields: [])
+    monkeypatch.setattr(twh, "missing_udas", lambda _fields, **_kwargs: [])
     monkeypatch.setattr(twh, "get_active_context_name", lambda: None)
     monkeypatch.setattr(twh, "get_context_definition", lambda _name: None)
     monkeypatch.setattr(dominance, "run_dominance", fake_run_dominance)
@@ -228,7 +230,7 @@ def test_run_interactive_add_runs_add_blocks_and_dominance(monkeypatch):
 
 
 @pytest.mark.unit
-def test_run_interactive_add_suppresses_taskwarrior_noise(monkeypatch, capsys):
+def test_run_interactive_add_suppresses_taskwarrior_noise(monkeypatch, capsys, tmp_path):
     """
     Ensure Taskwarrior modify noise is suppressed during interactive add.
 
@@ -287,8 +289,9 @@ def test_run_interactive_add_suppresses_taskwarrior_noise(monkeypatch, capsys):
             stderr="Project 'work' is 0% complete (1 task remaining).\n",
         )
 
+    monkeypatch.setenv(modes.MODE_ENV_VAR, str(tmp_path / "modes.json"))
     monkeypatch.setattr(twh, "run_task_command", fake_run_task_command)
-    monkeypatch.setattr(twh, "missing_udas", lambda _fields: [])
+    monkeypatch.setattr(twh, "missing_udas", lambda _fields, **_kwargs: [])
     monkeypatch.setattr(twh, "get_active_context_name", lambda: None)
     monkeypatch.setattr(twh, "get_context_definition", lambda _name: None)
     monkeypatch.setattr(dominance, "run_dominance", lambda *_a, **_k: 0)
@@ -350,7 +353,7 @@ def test_run_interactive_add_applies_context(monkeypatch, capsys):
         )
 
     monkeypatch.setattr(twh, "run_task_command", fake_run_task_command)
-    monkeypatch.setattr(twh, "missing_udas", lambda _fields: [])
+    monkeypatch.setattr(twh, "missing_udas", lambda _fields, **_kwargs: [])
     monkeypatch.setattr(twh, "get_active_context_name", lambda: "work")
     monkeypatch.setattr(
         twh,
@@ -413,7 +416,7 @@ def test_run_interactive_add_requires_udas_for_metadata(monkeypatch, capsys):
     def fake_input(prompt):
         return next(prompts)
 
-    def fake_missing_udas(fields):
+    def fake_missing_udas(fields, **_kwargs):
         return ["imp"] if "imp" in fields else []
 
     def unexpected_run(*_args, **_kwargs):

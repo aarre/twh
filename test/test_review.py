@@ -1313,7 +1313,7 @@ def test_format_task_rationale_marks_started(start, expected_present):
 
 
 @pytest.mark.unit
-def test_interactive_fill_missing_prompts_only_for_missing():
+def test_interactive_fill_missing_prompts_only_for_missing(monkeypatch, tmp_path):
     """
     Confirm the wizard prompts only for missing fields.
 
@@ -1341,9 +1341,59 @@ def test_interactive_fill_missing_prompts_only_for_missing():
     def fake_input(_prompt):
         return next(responses)
 
+    monkeypatch.setenv(review.modes_module.MODE_ENV_VAR, str(tmp_path / "modes.json"))
+
     updates = review.interactive_fill_missing(task, input_func=fake_input)
 
     assert updates == {"imp": "7", "diff": "2.5", "mode": "editorial"}
+
+
+@pytest.mark.unit
+def test_interactive_fill_missing_reprompts_reserved_mode(monkeypatch, tmp_path, capsys):
+    """
+    Ensure reserved mode values are rejected with a retry prompt.
+
+    Returns
+    -------
+    None
+        This test asserts reserved-mode handling.
+    """
+    task = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Task 1",
+        project=None,
+        depends=[],
+        imp=1,
+        urg=1,
+        opt=1,
+        diff=1.0,
+        mode=None,
+        dominates=[],
+        raw={},
+    )
+    responses = iter(["wait", "waiting"])
+
+    def fake_input(_prompt):
+        return next(responses)
+
+    monkeypatch.setenv(review.modes_module.MODE_ENV_VAR, str(tmp_path / "modes.json"))
+    monkeypatch.setattr(
+        review.modes_module,
+        "is_reserved_mode_value",
+        lambda value: value == "wait",
+    )
+    monkeypatch.setattr(
+        review.modes_module,
+        "ensure_taskwarrior_mode_value",
+        lambda *_args, **_kwargs: False,
+    )
+
+    updates = review.interactive_fill_missing(task, input_func=fake_input)
+
+    assert updates["mode"] == "waiting"
+    captured = capsys.readouterr()
+    assert "reserved" in captured.out.lower()
 
 
 @pytest.mark.unit
@@ -1460,20 +1510,27 @@ def test_apply_updates_verifies_mode_persistence(monkeypatch):
         return review.subprocess.CompletedProcess(
             args,
             0,
-            stdout='[{"uuid": "uuid-1", "mode": "wait"}]',
+            stdout='[{"uuid": "uuid-1", "mode": "analysis"}]',
             stderr="",
         )
 
     monkeypatch.setattr(review, "run_task_command", fake_runner)
 
+    def fake_get_setting(key):
+        if key == "uda.mode.type":
+            return "string"
+        if key == "uda.mode.values":
+            return "analysis,writing"
+        return None
+
     review.apply_updates(
         "uuid-1",
-        {"mode": "wait"},
-        get_setting=lambda _key: "string",
+        {"mode": "analysis"},
+        get_setting=fake_get_setting,
     )
 
     assert calls == [
-        ["uuid-1", "modify", "mode:wait"],
+        ["uuid-1", "modify", "mode:analysis"],
         ["uuid-1", "export"],
     ]
 
@@ -1500,12 +1557,89 @@ def test_apply_updates_raises_when_mode_missing_after_update(monkeypatch):
 
     monkeypatch.setattr(review, "run_task_command", fake_runner)
 
+    def fake_get_setting(key):
+        if key == "uda.mode.type":
+            return "string"
+        if key == "uda.mode.values":
+            return None
+        return None
+
     with pytest.raises(RuntimeError, match="Mode update did not persist"):
         review.apply_updates(
             "uuid-1",
-            {"mode": "wait"},
-            get_setting=lambda _key: "string",
+            {"mode": "analysis"},
+            get_setting=fake_get_setting,
         )
+
+
+@pytest.mark.unit
+def test_apply_updates_rejects_mode_with_bad_type(monkeypatch):
+    """
+    Ensure non-string mode UDA types raise before modify.
+
+    Returns
+    -------
+    None
+        This test asserts mode config validation.
+    """
+    calls = []
+
+    def fake_runner(args, capture_output=False, **_kwargs):
+        calls.append(args)
+        return review.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    def fake_get_setting(key):
+        if key == "uda.mode.type":
+            return "numeric"
+        if key == "uda.mode.values":
+            return None
+        return None
+
+    monkeypatch.setattr(review, "run_task_command", fake_runner)
+
+    with pytest.raises(RuntimeError, match="uda.mode.type"):
+        review.apply_updates(
+            "uuid-1",
+            {"mode": "analysis"},
+            get_setting=fake_get_setting,
+        )
+
+    assert calls == []
+
+
+@pytest.mark.unit
+def test_apply_updates_rejects_mode_not_in_values(monkeypatch):
+    """
+    Ensure missing mode values in uda.mode.values raise before modify.
+
+    Returns
+    -------
+    None
+        This test asserts mode values validation.
+    """
+    calls = []
+
+    def fake_runner(args, capture_output=False, **_kwargs):
+        calls.append(args)
+        return review.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    def fake_get_setting(key):
+        if key == "uda.mode.type":
+            return "string"
+        if key == "uda.mode.values":
+            return "writing"
+        return None
+
+    monkeypatch.setattr(review, "run_task_command", fake_runner)
+
+    with pytest.raises(RuntimeError, match="uda.mode.values"):
+        review.apply_updates(
+            "uuid-1",
+            {"mode": "analysis"},
+            get_setting=fake_get_setting,
+        )
+
+    assert calls == []
 
 
 @pytest.mark.parametrize(
@@ -1572,6 +1706,7 @@ def test_apply_updates_requires_udas(tmp_path, monkeypatch):
         return review.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
     monkeypatch.setattr(review, "run_task_command", fake_runner)
+    monkeypatch.setattr(review, "missing_udas", lambda _fields, **_kwargs: ["diff"])
 
     with pytest.raises(RuntimeError):
         review.apply_updates(

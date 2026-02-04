@@ -179,7 +179,7 @@ def test_apply_option_values_copies_opt_to_opt_human(monkeypatch):
         calls.append((args, capture_output))
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(option_value, "missing_udas", lambda _fields: [])
+    monkeypatch.setattr(option_value, "missing_udas", lambda _fields, **_kwargs: [])
 
     exit_code = option_value.apply_option_values(
         tasks,

@@ -126,6 +126,57 @@ def test_missing_udas_strict_ignores_taskrc(tmp_path, monkeypatch):
     assert missing == ["diff"]
 
 
+@pytest.mark.unit
+def test_parse_columns_output():
+    """
+    Ensure Taskwarrior column output is parsed into tokens.
+
+    Returns
+    -------
+    None
+        This test asserts column parsing.
+    """
+    assert taskwarrior._parse_columns_output("id\nproject\n\nstatus\n") == [
+        "id",
+        "project",
+        "status",
+    ]
+
+
+@pytest.mark.unit
+def test_get_core_attribute_names_excludes_udas(monkeypatch):
+    """
+    Ensure core attribute detection excludes UDA columns.
+
+    Returns
+    -------
+    None
+        This test asserts core attribute extraction.
+    """
+    taskwarrior.get_core_attribute_names.cache_clear()
+
+    def fake_runner(args, **_kwargs):
+        if args == ["_columns"]:
+            return subprocess.CompletedProcess(args, 0, stdout="id\nmode\nwait\n", stderr="")
+        if args == ["udas"]:
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                stdout="Name Type\nmode string\n\n1 UDAs defined\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(args, 1, stdout="", stderr="")
+
+    core = taskwarrior.get_core_attribute_names(
+        runner=fake_runner,
+        udas_runner=fake_runner,
+    )
+
+    assert "id" in core
+    assert "wait" in core
+    assert "mode" not in core
+
+
 @pytest.mark.parametrize(
     ("args", "expected"),
     [
