@@ -1111,35 +1111,41 @@ def test_rank_candidates_orders_by_schedule_time(field):
     assert [item.task.uuid for item in ranked] == ["u1", "u2"]
 
 @pytest.mark.parametrize(
-    ("start", "expected_marker"),
+    ("start", "expect_marker", "expect_color"),
     [
-        (None, ""),
-        (
-            datetime(2024, 1, 2, 12, 0, 0),
-            f" {review.colorize_in_progress(review.IN_PROGRESS_LABEL)}",
-        ),
+        (None, False, False),
+        (datetime(2024, 1, 2, 12, 0, 0), True, True),
     ],
 )
 @pytest.mark.unit
-def test_format_candidate_output_single_line(start, expected_marker):
+def test_format_ondeck_candidates_table(start, expect_marker, expect_color):
     """
-    Ensure candidate output is a single-line summary with optional progress marker.
+    Ensure ondeck candidates render in a Taskwarrior-style table with scores.
 
     Parameters
     ----------
     start : datetime | None
         Start timestamp to set on the move.
-    expected_marker : str
-        Expected marker string.
+    expect_marker : bool
+        True when the in-progress marker should appear.
+    expect_color : bool
+        True when the row should be colorized.
 
     Returns
     -------
     None
-        This test asserts review output formatting.
+        This test asserts ondeck table formatting.
     """
-    import twh.dominance as dominance
+    raw = {
+        "uuid": "u1",
+        "id": 1,
+        "description": "Move A",
+        "urgency": 1.23,
+    }
+    if start:
+        raw["start"] = "20240102T120000Z"
 
-    t1 = review.ReviewTask(
+    task = review.ReviewTask(
         uuid="u1",
         id=1,
         description="Move A",
@@ -1151,31 +1157,30 @@ def test_format_candidate_output_single_line(start, expected_marker):
         diff=1.0,
         mode=None,
         start=start,
-        dominates=["u2"],
-        annotations=["Annotation one"],
-        raw={},
-    )
-    t2 = review.ReviewTask(
-        uuid="u2",
-        id=2,
-        description="Move B",
-        project=None,
-        depends=[],
-        imp=1,
-        urg=1,
-        opt=1,
-        diff=1.0,
-        mode=None,
         dominates=[],
-        raw={},
+        raw=raw,
     )
-    state = dominance.build_dominance_state([t1, t2])
-    score, components = review.score_task(t1, None)
-    candidate = review.ScoredTask(task=t1, score=score, components=components)
+    candidate = review.ScoredTask(
+        task=task,
+        score=9.876,
+        components={},
+    )
 
-    lines = review.format_candidate_output(candidate, state, dominance_limit=3)
+    lines = review.format_ondeck_candidates(
+        [candidate],
+        columns=["description", "id", "urgency"],
+        labels=["Description", "ID", "Urg"],
+    )
 
-    assert lines == [f"[1]{expected_marker} Move A"]
+    assert lines[0].startswith("Description")
+    assert lines[1].startswith("-")
+
+    data_line = lines[2]
+    assert "Move A" in data_line
+    assert "9.88" in data_line
+    assert "1.23" not in data_line
+    assert (review.IN_PROGRESS_LABEL in data_line) is expect_marker
+    assert data_line.startswith(review.IN_PROGRESS_COLOR) is expect_color
 
 
 @pytest.mark.parametrize(

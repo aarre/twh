@@ -1328,6 +1328,95 @@ def format_dominance_lines(
     return lines
 
 
+def _build_ondeck_display_payload(candidate: ScoredTask) -> Dict[str, Any]:
+    """
+    Build a Taskwarrior-style payload for ondeck display rows.
+
+    Parameters
+    ----------
+    candidate : ScoredTask
+        Scored move candidate.
+
+    Returns
+    -------
+    Dict[str, Any]
+        Payload with the ondeck score stored under ``urgency`` and
+        description updated to include an in-progress marker when started.
+    """
+    task = candidate.task
+    payload = dict(task.raw)
+    payload["uuid"] = task.uuid
+    payload["id"] = task.id
+    description = task.description.strip()
+    marker = IN_PROGRESS_LABEL if task.start else ""
+    if marker:
+        description = f"{marker} {description}" if description else marker
+    payload["description"] = description
+    payload["urgency"] = candidate.score
+    if "project" not in payload and task.project is not None:
+        payload["project"] = task.project
+    if "depends" not in payload and task.depends:
+        payload["depends"] = task.depends
+    return payload
+
+
+def format_ondeck_candidates(
+    candidates: Sequence[ScoredTask],
+    columns: Optional[List[str]] = None,
+    labels: Optional[List[str]] = None,
+) -> List[str]:
+    """
+    Format ondeck candidates using Taskwarrior-style columns and colors.
+
+    The ondeck score is shown in the urgency column.
+
+    Parameters
+    ----------
+    candidates : Sequence[ScoredTask]
+        Scored move candidates to display.
+    columns : Optional[List[str]], optional
+        Column names to render (default: Taskwarrior report columns).
+    labels : Optional[List[str]], optional
+        Column labels to render (default: Taskwarrior report labels).
+
+    Returns
+    -------
+    List[str]
+        Rendered report lines, including header and separator.
+
+    Examples
+    --------
+    >>> task = ReviewTask(
+    ...     uuid="u1",
+    ...     id=1,
+    ...     description="Move A",
+    ...     project=None,
+    ...     depends=[],
+    ...     imp=1,
+    ...     urg=1,
+    ...     opt=1,
+    ...     raw={"uuid": "u1", "id": 1, "description": "Move A"},
+    ... )
+    >>> candidate = ScoredTask(task=task, score=12.345, components={})
+    >>> lines = format_ondeck_candidates(
+    ...     [candidate],
+    ...     columns=["description", "id", "urgency"],
+    ...     labels=["Description", "ID", "Urg"],
+    ... )
+    >>> lines[2]
+    'Move A       1   12.35'
+    """
+    if not candidates:
+        return []
+    from . import get_taskwarrior_columns_and_labels, render_task_table
+
+    if not columns or not labels:
+        columns, labels = get_taskwarrior_columns_and_labels()
+    uuid_to_id = {item.task.uuid: item.task.id for item in candidates}
+    rows = [(_build_ondeck_display_payload(item), "") for item in candidates]
+    return render_task_table(rows, columns, labels, uuid_to_id)
+
+
 def format_candidate_output(
     candidate: ScoredTask,
     dominance_state: "DominanceState",
@@ -1896,9 +1985,8 @@ def run_ondeck(
         return 0
 
     print("\nTop move candidates:")
-    for candidate in report.candidates:
-        for line in format_candidate_output(candidate, dominance_state):
-            print(line)
+    for line in format_ondeck_candidates(report.candidates):
+        print(line)
 
     best = report.candidates[0].task
     best_id = str(best.id) if best.id is not None else best.uuid[:8]

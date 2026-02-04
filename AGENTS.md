@@ -43,7 +43,7 @@ Already implemented, among other requirements:
 * Dominance should never prompt for move pairs already related by dependencies (including when dependencies are stored as IDs), and prompts should show approximate progress (comparisons complete/remaining).
 * Dominance missing/unknown pair checks use reachability maps to avoid slow ondeck/dominance runs on large move sets.
 * `twh ondeck` defers dominance-missing checks until after metadata prompts when any metadata is missing, so the first prompt appears quickly.
-* `twh ondeck` outputs a top-move list as one-line summaries (ID, optional `[IN PROGRESS]` marker, description) and defaults to showing 25 candidates.
+* `twh ondeck` outputs its top-move list using the default Taskwarrior report columns/colors and shows the ondeck score in place of urgency; it defaults to showing 25 candidates.
 * `twh add` suppresses Taskwarrior modify/project completion noise after creating a move (dominance and blocks updates run quietly unless there are errors).
 * Taskwarrior project-completion summary lines are filtered from twh output when relaying command results.
 * Mode prompts use a persistent known-modes list (stored in `~/.config/twh/modes.json`, override with `TWH_MODES_PATH`) with inline autocompletion; newly entered modes are added immediately, prompt examples are alphabetized, and Taskwarrior `uda.mode.values` is extended when present.
