@@ -85,4 +85,5 @@ Already implemented, among other requirements:
 - `twh start`/`twh stop` log time entries (uuid/description/project/tags/mode/start/end) to `~/.task/twh-time.db`, auto-stop other active moves on start, and `twh time` reports by task/project/tag/mode with day/week/month/year/range bucketing plus date filtering and record edits.
 - On WSL, `open_in_browser` converts paths with `wslpath -w`, copies UNC (Linux filesystem) paths into the Windows TEMP directory, and launches Windows Edge directly via `msedge.exe` (falling back to `cmd.exe /c start microsoft-edge:<file-url>` when Edge cannot be located).
 - Do not modify `CHANGELOG.md` directly; it is managed via commitizen and manual edits interfere with the workflow.
+- On Windows/PowerShell, Scoop `coreutils` `head` (Cygwin) can fail with `Couldn't reserve space for cygwin's heap`; prefer `Get-Content -TotalCount N <file>`/`Select-Object -First N`, or install `uutils-coreutils` and ensure it precedes `coreutils` in `PATH`.
 
