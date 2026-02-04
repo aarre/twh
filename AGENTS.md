@@ -46,6 +46,7 @@ Already implemented, among other requirements:
 * Taskwarrior project-completion summary lines are filtered from twh output when relaying command results.
 * Mode prompts use a persistent known-modes list (stored in `~/.config/twh/modes.json`, override with `TWH_MODES_PATH`) with inline autocompletion; newly entered modes are added immediately, prompt examples are alphabetized, and Taskwarrior `uda.mode.values` is extended when present.
 * Taskwarrior modify failures during metadata updates raise errors to avoid silently losing mode entries.
+* README now includes WSL-friendly installation and reinstall steps (venv + pipx) for dependencies like prompt_toolkit.
 * `twh ondeck` marks started moves as in progress in its output, using a green highlight for visibility.
 * `twh ondeck` excludes moves whose `start` time is in the future from its report output, but still includes them in the missing-metadata wizard.
 * Before any operation that could modify move descriptions (including writing UDAs that might be misconfigured), halt and ask for guidance. If a required UDA is missing and its absence could overwrite descriptions, stop and ask for guidance before proceeding.
