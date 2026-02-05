@@ -60,6 +60,7 @@ Already implemented, among other requirements:
 * `twh ondeck` marks started moves as in progress in its output, using a green highlight for visibility.
 * `twh ondeck` appends `*` to move IDs in the report when the move has annotations.
 * `twh` always uses Taskwarrior 3 via the `task` binary and the canonical `~/.taskrc`, ignoring `TASKRC` or `rc:` overrides.
+* Do not delete Chezmoi-managed files.
 * Enforce LF line endings via `.gitattributes` and keep `core.autocrlf=input` for WSL development to avoid CRLF warnings.
 * `twh ondeck` excludes moves whose `start` time is in the future from its report output, but still includes tied moves in the missing-metadata wizard.
 * Before any operation that could modify move descriptions (including writing UDAs that might be misconfigured), halt and ask for guidance. If a required UDA is missing and its absence could overwrite descriptions, stop and ask for guidance before proceeding.
