@@ -47,6 +47,7 @@ python3.12 -m pipx reinstall twh
 ```
 
 ```bash
+twh help
 twh list
 twh list reverse
 twh simple
@@ -63,6 +64,9 @@ twh calibrate
 twh graph
 twh graph reverse
 ```
+
+twh help prints a short reminder of twh-specific commands. Use `task help` for
+Taskwarrior commands.
 
 twh refers to Taskwarrior tasks as moves in its output and documentation.
 Unlike `task`, `twh` forces case-insensitive searches so `twh Task` matches

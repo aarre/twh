@@ -49,6 +49,7 @@ Already implemented, among other requirements:
 * `twh ondeck` outputs its top-move list using the default Taskwarrior report columns/colors, but places the ID column first and relabels urgency to `Rank` for the composite ordering (1 is highest) while adding a numeric `Score` column; it defaults to showing 25 candidates.
 * `twh add` suppresses Taskwarrior modify/project completion noise after creating a move (dominance and blocks updates run quietly unless there are errors).
 * Taskwarrior project-completion summary lines are filtered from twh output when relaying command results.
+* `twh help` prints a brief reminder of twh-specific commands and points to `task help` for Taskwarrior commands.
 * Mode prompts use a persistent known-modes list (stored in `~/.config/twh/modes.json`, override with `TWH_MODES_PATH`) with inline autocompletion; newly entered modes are added immediately, prompt examples are alphabetized, and Taskwarrior `uda.mode.values` is extended when present.
 * Mode prompts reject Taskwarrior core attribute/status keywords (for example `wait`) with a helpful retry prompt.
 * Taskwarrior modify failures during metadata updates raise errors to avoid silently losing mode entries; mode updates are verified via export and raise if missing.

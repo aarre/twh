@@ -2318,6 +2318,19 @@ def build_app():
 
     app = typer.Typer(help="Hierarchical views of Taskwarrior moves")
 
+    @app.command("help")
+    def help_cmd():
+        """
+        Print a brief reminder of twh-specific commands.
+
+        Returns
+        -------
+        None
+            This command prints the twh help summary.
+        """
+        for line in get_twh_help_lines():
+            print(line)
+
     @app.command("list")
     def list_cmd(
         mode: Optional[str] = typer.Argument(
@@ -2824,23 +2837,54 @@ def build_app():
     return app
 
 
-TWH_COMMANDS = {
-    "list",
-    "reverse",
-    "tree",
-    "graph",
-    "simple",
-    "defer",
-    "ondeck",
-    "diagnose",
-    "option",
-    "dominance",
-    "calibrate",
-    "start",
-    "stop",
-    "time",
-}
+TWH_HELP_HEADER = "twh commands:"
+TWH_HELP_FOOTER = "Use task help for Taskwarrior commands."
+TWH_HELP_ENTRIES: Tuple[Tuple[str, str], ...] = (
+    ("add", "Interactive add wizard for a move."),
+    ("list", "Hierarchical list of moves."),
+    ("reverse", "Blocker-first list."),
+    ("tree", "Dependency tree of moves."),
+    ("graph", "Graph view of move dependencies."),
+    ("simple", "Taskwarrior report with annotation counts."),
+    ("ondeck", "Rank moves and collect tie metadata."),
+    ("defer", "Defer the top move."),
+    ("diagnose", "Stuck-move helper wizard."),
+    ("dominance", "Pairwise dominance prompts for moves."),
+    ("criticality", "Pairwise time-criticality prompts for moves."),
+    ("option", "Estimate opt_auto values."),
+    ("calibrate", "Calibrate precedence/option weights."),
+    ("start", "Start time tracking for a move."),
+    ("stop", "Stop time tracking for a move."),
+    ("time", "Report or edit time logs."),
+    ("help", "Show this help."),
+)
+TWH_COMMANDS: Set[str] = {command for command, _ in TWH_HELP_ENTRIES}
 TWH_HELP_ARGS = {"-h", "--help", "--install-completion", "--show-completion"}
+
+
+def get_twh_help_lines() -> List[str]:
+    """
+    Build the help text lines for twh-specific commands.
+
+    Returns
+    -------
+    list[str]
+        Lines to print for the `twh help` command.
+
+    Examples
+    --------
+    >>> lines = get_twh_help_lines()
+    >>> lines[0]
+    'twh commands:'
+    >>> any(line.strip().startswith("ondeck") for line in lines)
+    True
+    """
+    max_width = max(len(command) for command, _ in TWH_HELP_ENTRIES)
+    lines = [TWH_HELP_HEADER]
+    for command, description in TWH_HELP_ENTRIES:
+        lines.append(f"  {command:<{max_width}}  {description}")
+    lines.append(TWH_HELP_FOOTER)
+    return lines
 
 
 def should_delegate_to_task(argv: List[str]) -> bool:
@@ -2866,6 +2910,8 @@ def should_delegate_to_task(argv: List[str]) -> bool:
     >>> should_delegate_to_task(["add", "Next move"])
     False
     >>> should_delegate_to_task(["list"])
+    False
+    >>> should_delegate_to_task(["help"])
     False
     >>> should_delegate_to_task(["--help"])
     False

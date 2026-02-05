@@ -156,9 +156,11 @@ def test_apply_context_to_add_args(
         (["tree"], False),
         (["simple"], False),
         (["graph"], False),
+        (["help"], False),
         (["ondeck"], False),
         (["option"], False),
         (["dominance"], False),
+        (["criticality"], False),
         (["calibrate"], False),
         (["diagnose"], False),
         (["start"], False),
@@ -185,6 +187,83 @@ def test_should_delegate_to_task(argv, expected):
         This test asserts on delegation behavior.
     """
     assert twh.should_delegate_to_task(argv) is expected
+
+
+@pytest.fixture(scope="module")
+def help_output_lines():
+    """
+    Capture the twh help output once for reuse across tests.
+
+    Returns
+    -------
+    list[str]
+        Lines of output produced by the help command.
+    """
+    runner = CliRunner()
+    result = runner.invoke(twh.build_app(), ["help"])
+    assert result.exit_code == 0
+    return [line.rstrip() for line in result.stdout.splitlines()]
+
+
+@pytest.mark.unit
+def test_help_command_includes_header_and_footer(help_output_lines):
+    """
+    Confirm the help command prints a header and a Taskwarrior reminder.
+
+    Parameters
+    ----------
+    help_output_lines : list[str]
+        Lines produced by the help command.
+
+    Returns
+    -------
+    None
+        This test asserts on the help output framing.
+    """
+    assert help_output_lines[0] == "twh commands:"
+    assert help_output_lines[-1] == "Use task help for Taskwarrior commands."
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "add",
+        "list",
+        "reverse",
+        "tree",
+        "graph",
+        "simple",
+        "ondeck",
+        "defer",
+        "diagnose",
+        "dominance",
+        "criticality",
+        "option",
+        "calibrate",
+        "start",
+        "stop",
+        "time",
+        "help",
+    ],
+)
+@pytest.mark.unit
+def test_help_command_lists_twh_commands(help_output_lines, command):
+    """
+    Ensure the help output lists each twh-specific command.
+
+    Parameters
+    ----------
+    help_output_lines : list[str]
+        Lines produced by the help command.
+    command : str
+        Command expected in the help output.
+
+    Returns
+    -------
+    None
+        This test asserts on the command listing.
+    """
+    assert any(line.strip().startswith(command) for line in help_output_lines)
 
 
 @pytest.mark.unit
