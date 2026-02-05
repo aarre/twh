@@ -1774,6 +1774,81 @@ def interactive_fill_missing(
     return updates
 
 
+def interactive_fill_missing_incremental(
+    task: ReviewTask,
+    input_func: Callable[[str], str] = input,
+    apply_func: Callable[[str, Dict[str, str]], None] = None,
+) -> bool:
+    """
+    Prompt for missing metadata and apply updates after each entry.
+
+    Parameters
+    ----------
+    task : ReviewTask
+        Move to update.
+    input_func : Callable[[str], str], optional
+        Input function for prompts (default: input).
+    apply_func : Callable[[str, Dict[str, str]], None], optional
+        Function to apply updates immediately (default: apply_updates).
+
+    Returns
+    -------
+    bool
+        True when any updates were applied.
+    """
+    if apply_func is None:
+        apply_func = apply_updates
+    updated = False
+    known_modes = modes_module.load_known_modes()
+    print("\nFill missing fields for this move (press Enter to skip)")
+    if task.imp is None:
+        value = input_func(
+            "  Importance horizon - how long will you remember whether this move was done? (days): "
+        ).strip()
+        if value:
+            apply_func(task.uuid, {"imp": value})
+            updated = True
+    if task.urg is None:
+        value = input_func(
+            "  Urgency horizon - how long before acting loses value? (days): "
+        ).strip()
+        if value:
+            apply_func(task.uuid, {"urg": value})
+            updated = True
+    if manual_option_value(task) is None:
+        value = input_func(
+            "  Option value - to what extent does doing this move preserve, unlock, or multiply future moves? (0-10): "
+        ).strip()
+        if value:
+            apply_func(task.uuid, {"opt_human": value})
+            updated = True
+    if task.diff is None:
+        value = input_func("  Difficulty, i.e., estimated effort (hours): ").strip()
+        if value:
+            apply_func(task.uuid, {"diff": value})
+            updated = True
+    if not task.mode:
+        prompt = modes_module.format_mode_prompt(known_modes)
+        while True:
+            value = modes_module.prompt_mode_value(
+                prompt,
+                known_modes,
+                input_func=input_func,
+            ).strip()
+            if not value:
+                break
+            normalized = modes_module.normalize_mode_value(value)
+            if modes_module.is_reserved_mode_value(normalized):
+                print(modes_module.format_reserved_mode_error(normalized))
+                continue
+            known_modes = modes_module.register_mode(normalized, modes=known_modes)
+            modes_module.ensure_taskwarrior_mode_value(normalized)
+            apply_func(task.uuid, {"mode": normalized})
+            updated = True
+            break
+    return updated
+
+
 def apply_updates(
     uuid: str,
     updates: Dict[str, str],
@@ -1981,13 +2056,15 @@ def run_ondeck(
             move_id = str(move.id) if move.id is not None else move.uuid[:8]
             print("\n---")
             print(f"Move [{move_id}] {move.description}")
-            updates = interactive_fill_missing(move, input_func=input_func)
-            if updates:
-                try:
-                    apply_updates(move.uuid, updates)
-                except RuntimeError as exc:
-                    print(f"twh: ondeck failed: {exc}")
-                    return 1
+            try:
+                was_updated = interactive_fill_missing_incremental(
+                    move,
+                    input_func=input_func,
+                )
+            except RuntimeError as exc:
+                print(f"twh: ondeck failed: {exc}")
+                return 1
+            if was_updated:
                 updated = True
                 print("Updated.")
 
@@ -1998,6 +2075,12 @@ def run_ondeck(
 
     if criticality_missing:
         from . import criticality as criticality_module
+
+        try:
+            criticality_module.ensure_criticality_uda()
+        except RuntimeError as exc:
+            print(f"twh: ondeck failed: {exc}")
+            return 1
 
         state = criticality_module.build_criticality_state(pending)
         tiers = criticality_module.sort_into_tiers(
@@ -2021,7 +2104,30 @@ def run_ondeck(
     if needs_wizard and dominance_missing:
         from . import dominance as dominance_module
 
-        tiers = dominance_module.sort_into_tiers(
+        try:
+            dominance_module.ensure_dominance_udas()
+        except RuntimeError as exc:
+            print(f"twh: ondeck failed: {exc}")
+            return 1
+
+        dominance_updated = False
+
+        def on_update(
+            current_state: "DominanceState",
+            uuids: Iterable[str],
+        ) -> None:
+            nonlocal dominance_updated
+            updates = dominance_module.build_incremental_updates(current_state, uuids)
+            if not updates:
+                return
+            dominance_module.apply_dominance_updates(
+                updates,
+                quiet=True,
+                validate_udas=False,
+            )
+            dominance_updated = True
+
+        _ = dominance_module.sort_into_tiers(
             pending,
             dominance_state,
             chooser=dominance_module.make_progress_chooser(
@@ -2029,15 +2135,11 @@ def run_ondeck(
                 dominance_state,
                 input_func=input_func,
             ),
+            on_update=on_update,
         )
-        updates = dominance_module.build_dominance_updates(tiers)
-        try:
-            dominance_module.apply_dominance_updates(updates)
-        except RuntimeError as exc:
-            print(f"twh: ondeck failed: {exc}")
-            return 1
-        updated = True
-        print(f"Dominance updated for {len(pending)} moves.")
+        if dominance_updated:
+            updated = True
+            print(f"Dominance updated for {len(pending)} moves.")
 
     if updated:
         from . import option_value as option_module

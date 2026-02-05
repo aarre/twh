@@ -33,6 +33,41 @@ def make_move(
     )
 
 
+@pytest.mark.parametrize(
+    ("choice", "expected_relation"),
+    [
+        (criticality.CriticalityChoice.LEFT, "more_critical"),
+        (criticality.CriticalityChoice.RIGHT, "less_critical"),
+        (criticality.CriticalityChoice.TIE, "tie"),
+    ],
+)
+@pytest.mark.unit
+def test_record_criticality_comparison_persists(
+    tmp_path,
+    monkeypatch,
+    choice,
+    expected_relation,
+):
+    """
+    Ensure comparison selections are saved and reapplied.
+
+    Returns
+    -------
+    None
+        This test asserts saved comparison reuse.
+    """
+    store_path = tmp_path / "criticality.json"
+    monkeypatch.setenv(criticality.CRITICALITY_PATH_ENV, str(store_path))
+    move_a = make_move("a")
+    move_b = make_move("b")
+
+    criticality.record_criticality_comparison("a", "b", choice)
+    state = criticality.build_criticality_state([move_a, move_b])
+
+    assert store_path.exists()
+    assert criticality.criticality_relation(state, "a", "b") == expected_relation
+
+
 @pytest.mark.unit
 def test_sort_into_tiers_respects_existing_values_without_prompt():
     """

@@ -277,6 +277,79 @@ def dominance_missing_uuids(
     return missing
 
 
+def ensure_dominance_udas(
+    get_setting: Optional[Callable[[str], Optional[str]]] = None,
+) -> None:
+    """
+    Ensure dominance UDAs are configured before writing updates.
+
+    Parameters
+    ----------
+    get_setting : Optional[Callable[[str], Optional[str]]], optional
+        Getter for Taskwarrior settings.
+
+    Raises
+    ------
+    RuntimeError
+        If required dominance UDAs are missing.
+    """
+    if get_setting is None:
+        from .taskwarrior import get_taskwarrior_setting
+
+        get_setting = get_taskwarrior_setting
+    missing = missing_udas(
+        ["dominates", "dominated_by"],
+        get_setting=get_setting,
+        allow_taskrc_fallback=False,
+    )
+    if missing:
+        raise RuntimeError(describe_missing_udas(missing))
+
+
+def build_incremental_updates(
+    state: DominanceState,
+    uuids: Iterable[str],
+) -> Dict[str, DominanceUpdate]:
+    """
+    Build dominance updates for a subset of moves.
+
+    Parameters
+    ----------
+    state : DominanceState
+        Dominance graph state.
+    uuids : Iterable[str]
+        UUIDs to update.
+
+    Returns
+    -------
+    Dict[str, DominanceUpdate]
+        Incremental updates keyed by UUID.
+    """
+    uuid_set = {uuid for uuid in uuids if uuid in state.tasks}
+    if not uuid_set:
+        return {}
+    incoming: Dict[str, Set[str]] = {uuid: set() for uuid in state.tasks}
+    for src, edges in state.dominates.items():
+        for target in edges:
+            if target in incoming:
+                incoming[target].add(src)
+    tie_map: Dict[str, Set[str]] = {uuid: set() for uuid in state.tasks}
+    for pair in state.ties:
+        left, right = tuple(pair)
+        if left in tie_map and right in tie_map:
+            tie_map[left].add(right)
+            tie_map[right].add(left)
+    updates: Dict[str, DominanceUpdate] = {}
+    for uuid in uuid_set:
+        dominates = sorted(state.dominates.get(uuid, set()))
+        dominated_by = sorted(incoming.get(uuid, set()) | tie_map.get(uuid, set()))
+        updates[uuid] = DominanceUpdate(
+            dominates=dominates,
+            dominated_by=dominated_by,
+        )
+    return updates
+
+
 def count_unknown_pairs(tasks: Sequence[ReviewTask], state: DominanceState) -> int:
     """
     Count dominance pairs that still require user input.
@@ -431,6 +504,7 @@ def compare_moves(
     left: ReviewTask,
     right: ReviewTask,
     chooser: Callable[[ReviewTask, ReviewTask], DominanceChoice],
+    on_update: Optional[Callable[[DominanceState, Iterable[str]], None]] = None,
 ) -> int:
     """
     Compare two moves and update dominance state when needed.
@@ -451,12 +525,18 @@ def compare_moves(
     choice = chooser(left, right)
     if choice == DominanceChoice.LEFT:
         _record_dominance(state, left.uuid, right.uuid)
+        if on_update is not None:
+            on_update(state, {left.uuid, right.uuid})
         return -1
     if choice == DominanceChoice.RIGHT:
         _record_dominance(state, right.uuid, left.uuid)
+        if on_update is not None:
+            on_update(state, {left.uuid, right.uuid})
         return 1
 
     _record_tie(state, left.uuid, right.uuid)
+    if on_update is not None:
+        on_update(state, {left.uuid, right.uuid})
     return 0
 
 
@@ -464,6 +544,7 @@ def sort_into_tiers(
     tasks: Iterable[ReviewTask],
     state: DominanceState,
     chooser: Callable[[ReviewTask, ReviewTask], DominanceChoice],
+    on_update: Optional[Callable[[DominanceState, Iterable[str]], None]] = None,
 ) -> List[List[ReviewTask]]:
     """
     Sort moves into dominance tiers using binary insertion.
@@ -497,7 +578,13 @@ def sort_into_tiers(
         while lo <= hi:
             mid = (lo + hi) // 2
             rep = tiers[mid][0]
-            comparison = compare_moves(state, task, rep, chooser)
+            comparison = compare_moves(
+                state,
+                task,
+                rep,
+                chooser,
+                on_update=on_update,
+            )
             if comparison == 0:
                 tiers[mid].append(task)
                 placed = True
@@ -544,6 +631,7 @@ def apply_dominance_updates(
     runner: Optional[Callable[..., subprocess.CompletedProcess]] = None,
     get_setting: Optional[Callable[[str], Optional[str]]] = None,
     quiet: bool = False,
+    validate_udas: bool = True,
 ) -> None:
     """
     Apply dominance updates to Taskwarrior.
@@ -563,13 +651,14 @@ def apply_dominance_updates(
         from .taskwarrior import get_taskwarrior_setting
 
         get_setting = get_taskwarrior_setting
-    missing = missing_udas(
-        ["dominates", "dominated_by"],
-        get_setting=get_setting,
-        allow_taskrc_fallback=False,
-    )
-    if missing:
-        raise RuntimeError(describe_missing_udas(missing))
+    if validate_udas:
+        missing = missing_udas(
+            ["dominates", "dominated_by"],
+            get_setting=get_setting,
+            allow_taskrc_fallback=False,
+        )
+        if missing:
+            raise RuntimeError(describe_missing_udas(missing))
     if runner is None:
         def task_runner(args, **kwargs):
             return subprocess.run(["task", *args], **kwargs)
@@ -685,17 +774,35 @@ def run_dominance(
             print("Dominance is already complete for these moves.")
         return 0
 
-    tiers = sort_into_tiers(
-        pending,
-        state,
-        chooser=make_progress_chooser(pending, state, input_func=input_func),
-    )
-    updates = build_dominance_updates(tiers)
     try:
-        apply_dominance_updates(updates, quiet=quiet)
+        ensure_dominance_udas()
     except RuntimeError as exc:
         print(f"twh: dominance failed: {exc}", file=sys.stderr)
         return 1
+
+    updated = False
+
+    def on_update(current_state: DominanceState, uuids: Iterable[str]) -> None:
+        nonlocal updated
+        updates = build_incremental_updates(current_state, uuids)
+        if not updates:
+            return
+        apply_dominance_updates(
+            updates,
+            quiet=True,
+            validate_udas=False,
+        )
+        updated = True
+
+    _ = sort_into_tiers(
+        pending,
+        state,
+        chooser=make_progress_chooser(pending, state, input_func=input_func),
+        on_update=on_update,
+    )
     if not quiet:
-        print(f"Dominance updated for {len(pending)} moves.")
+        if updated:
+            print(f"Dominance updated for {len(pending)} moves.")
+        else:
+            print("Dominance comparisons completed without changes.")
     return 0

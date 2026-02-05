@@ -5,10 +5,13 @@ Collect time-criticality ordering for moves with minimal comparisons.
 
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
 from enum import IntEnum
+from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set
 
 from .review import ReviewTask, load_pending_tasks
@@ -17,6 +20,10 @@ from .taskwarrior import (
     filter_modified_zero_lines,
     missing_udas,
 )
+
+
+CRITICALITY_PATH_ENV = "TWH_CRITICALITY_PATH"
+CRITICALITY_STORE_VERSION = 1
 
 
 class CriticalityChoice(IntEnum):
@@ -49,6 +56,141 @@ class CriticalityState:
     ties: Set[frozenset[str]]
 
 
+def criticality_store_path() -> Path:
+    """
+    Resolve the on-disk store for criticality comparisons.
+
+    Returns
+    -------
+    Path
+        Path to the comparison cache file.
+    """
+    override = os.environ.get(CRITICALITY_PATH_ENV)
+    if override:
+        return Path(os.path.expandvars(os.path.expanduser(override)))
+    return Path.home() / ".config" / "twh" / "criticality.json"
+
+
+def load_criticality_store(path: Optional[Path] = None) -> Dict[str, Dict[str, str]]:
+    """
+    Load criticality comparison records from disk.
+
+    Parameters
+    ----------
+    path : Optional[Path], optional
+        Override path to load (default: resolved store path).
+
+    Returns
+    -------
+    Dict[str, Dict[str, str]]
+        Mapping with ``pairs`` for stored comparisons.
+    """
+    store_path = path or criticality_store_path()
+    if not store_path.exists():
+        return {"pairs": {}}
+    raw = store_path.read_text(encoding="utf-8")
+    data = json.loads(raw) if raw.strip() else {}
+    pairs = data.get("pairs")
+    if not isinstance(pairs, dict):
+        pairs = {}
+    return {"pairs": {str(key): str(value) for key, value in pairs.items()}}
+
+
+def save_criticality_store(
+    store: Dict[str, Dict[str, str]],
+    path: Optional[Path] = None,
+) -> None:
+    """
+    Persist criticality comparison records to disk.
+
+    Parameters
+    ----------
+    store : Dict[str, Dict[str, str]]
+        Store contents containing ``pairs``.
+    path : Optional[Path], optional
+        Override path to save (default: resolved store path).
+    """
+    store_path = path or criticality_store_path()
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": CRITICALITY_STORE_VERSION,
+        "pairs": store.get("pairs", {}),
+    }
+    store_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _pair_key(left: str, right: str) -> tuple[str, str, bool]:
+    if left <= right:
+        return left, right, True
+    return right, left, False
+
+
+def record_criticality_comparison(
+    left_uuid: str,
+    right_uuid: str,
+    choice: "CriticalityChoice",
+    path: Optional[Path] = None,
+) -> None:
+    """
+    Record a criticality comparison decision for recovery.
+
+    Parameters
+    ----------
+    left_uuid : str
+        Left move UUID.
+    right_uuid : str
+        Right move UUID.
+    choice : CriticalityChoice
+        Comparison outcome.
+    path : Optional[Path], optional
+        Override path to save (default: resolved store path).
+    """
+    if left_uuid == right_uuid:
+        return
+    store = load_criticality_store(path)
+    left, right, left_is_first = _pair_key(left_uuid, right_uuid)
+    if choice == CriticalityChoice.TIE:
+        relation = "tie"
+    elif choice == CriticalityChoice.LEFT:
+        relation = "first" if left_is_first else "second"
+    else:
+        relation = "second" if left_is_first else "first"
+    store.setdefault("pairs", {})[f"{left}|{right}"] = relation
+    save_criticality_store(store, path)
+
+
+def apply_saved_comparisons(
+    state: CriticalityState,
+    path: Optional[Path] = None,
+) -> None:
+    """
+    Apply stored criticality comparisons to the current state.
+
+    Parameters
+    ----------
+    state : CriticalityState
+        Criticality graph state to update.
+    path : Optional[Path], optional
+        Override path to load (default: resolved store path).
+    """
+    store = load_criticality_store(path)
+    pairs = store.get("pairs", {})
+    for key, relation in pairs.items():
+        if "|" not in key:
+            continue
+        left, right = key.split("|", 1)
+        if left not in state.tasks or right not in state.tasks:
+            continue
+        if relation == "tie":
+            state.ties.add(frozenset({left, right}))
+            continue
+        if relation == "first":
+            state.more_critical.setdefault(left, set()).add(right)
+            continue
+        if relation == "second":
+            state.more_critical.setdefault(right, set()).add(left)
+
+
 def build_criticality_state(tasks: Iterable[ReviewTask]) -> CriticalityState:
     """
     Build an empty criticality state from move metadata.
@@ -66,7 +208,9 @@ def build_criticality_state(tasks: Iterable[ReviewTask]) -> CriticalityState:
     task_list = list(tasks)
     task_map = {task.uuid: task for task in task_list}
     more_critical: Dict[str, Set[str]] = {task.uuid: set() for task in task_list}
-    return CriticalityState(tasks=task_map, more_critical=more_critical, ties=set())
+    state = CriticalityState(tasks=task_map, more_critical=more_critical, ties=set())
+    apply_saved_comparisons(state)
+    return state
 
 
 def _criticality_path(state: CriticalityState, start: str, target: str) -> bool:
@@ -201,6 +345,31 @@ def criticality_missing_uuids(tasks: Iterable[ReviewTask]) -> Set[str]:
         UUIDs missing criticality values.
     """
     return {task.uuid for task in tasks if task.criticality is None}
+
+
+def ensure_criticality_uda(
+    get_setting: Optional[Callable[[str], Optional[str]]] = None,
+) -> None:
+    """
+    Ensure the criticality UDA is configured before writing.
+
+    Parameters
+    ----------
+    get_setting : Optional[Callable[[str], Optional[str]]], optional
+        Getter for Taskwarrior settings.
+
+    Raises
+    ------
+    RuntimeError
+        If the criticality UDA is missing.
+    """
+    missing = missing_udas(
+        ["criticality"],
+        get_setting=get_setting,
+        allow_taskrc_fallback=False,
+    )
+    if missing:
+        raise RuntimeError(describe_missing_udas(missing))
 
 
 def count_unknown_pairs(tasks: Sequence[ReviewTask], state: CriticalityState) -> int:
@@ -380,12 +549,15 @@ def compare_moves(
     choice = chooser(left, right)
     if choice == CriticalityChoice.LEFT:
         _record_order(state, left.uuid, right.uuid)
+        record_criticality_comparison(left.uuid, right.uuid, choice)
         return -1
     if choice == CriticalityChoice.RIGHT:
         _record_order(state, right.uuid, left.uuid)
+        record_criticality_comparison(left.uuid, right.uuid, choice)
         return 1
 
     _record_tie(state, left.uuid, right.uuid)
+    record_criticality_comparison(left.uuid, right.uuid, choice)
     return 0
 
 
@@ -565,6 +737,12 @@ def run_criticality(
         if not quiet:
             print("No pending moves found.")
         return 0
+
+    try:
+        ensure_criticality_uda()
+    except RuntimeError as exc:
+        print(f"twh: criticality failed: {exc}", file=sys.stderr)
+        return 1
 
     missing = criticality_missing_uuids(pending)
     if not missing:

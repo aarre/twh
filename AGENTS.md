@@ -75,6 +75,9 @@ Already implemented, among other requirements:
 
 ## Project notes
 
+- When adding or enabling new UDA-backed features, explicitly call out the required `~/.taskrc` entries so the user can update them before running interactive workflows.
+- Wizard-style prompts should persist incremental updates as the user enters data so partial progress is not lost if a later step fails.
+- Criticality comparisons are cached to `~/.config/twh/criticality.json` (override with `TWH_CRITICALITY_PATH`) so the workflow can resume after interruptions.
 - `twh` delegates unknown commands (including no-arg invocation) to Taskwarrior; `list`, `reverse`, `tree`, `graph`, `simple`, `ondeck`, `defer`, `diagnose`, `option`, `calibrate`, `start`, `stop`, `time`, `dominance`, and `criticality` are handled internally.
 - `twh add` uses an interactive prompt sequence and still augments new moves with the active Taskwarrior context's `project:` or tag filters (from `context.<name>`), without overriding explicit `project:` or `+tag` inputs.
 - Running tests directly from the repo root needs `PYTHONPATH=src` (or an editable install) so `import twh` resolves the package.

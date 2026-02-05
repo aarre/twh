@@ -154,6 +154,77 @@ def test_sort_into_tiers_records_tie():
     assert {move.uuid for move in tiers[0]} == {"a", "b"}
 
 
+@pytest.mark.unit
+def test_compare_moves_calls_on_update_for_new_choice():
+    """
+    Ensure incremental callbacks fire for new dominance decisions.
+
+    Returns
+    -------
+    None
+        This test asserts update callbacks receive the compared UUIDs.
+    """
+    move_a = make_move("a")
+    move_b = make_move("b")
+    state = dominance.build_dominance_state([move_a, move_b])
+    calls = []
+
+    def chooser(_left, _right):
+        return dominance.DominanceChoice.LEFT
+
+    def on_update(_state, uuids):
+        calls.append(set(uuids))
+
+    result = dominance.compare_moves(
+        state,
+        move_a,
+        move_b,
+        chooser,
+        on_update=on_update,
+    )
+
+    assert result == -1
+    assert calls == [{"a", "b"}]
+
+
+@pytest.mark.unit
+def test_build_incremental_updates_includes_ties_and_edges():
+    """
+    Ensure incremental updates preserve ties and dominance edges.
+
+    Returns
+    -------
+    None
+        This test asserts update contents.
+    """
+    move_a = make_move("a")
+    move_b = make_move("b")
+    move_c = make_move("c")
+    state = dominance.build_dominance_state([move_a, move_b, move_c])
+
+    dominance.compare_moves(
+        state,
+        move_a,
+        move_b,
+        lambda *_: dominance.DominanceChoice.TIE,
+    )
+    dominance.compare_moves(
+        state,
+        move_a,
+        move_c,
+        lambda *_: dominance.DominanceChoice.LEFT,
+    )
+
+    updates = dominance.build_incremental_updates(state, ["a", "b", "c"])
+
+    assert updates["a"].dominates == ["c"]
+    assert updates["a"].dominated_by == ["b"]
+    assert updates["b"].dominates == []
+    assert updates["b"].dominated_by == ["a"]
+    assert updates["c"].dominates == []
+    assert updates["c"].dominated_by == ["a"]
+
+
 @pytest.mark.parametrize(
     ("input_value", "expected"),
     [
@@ -373,7 +444,7 @@ def test_run_dominance_quiet_suppresses_status(monkeypatch, capsys):
     monkeypatch.setattr(
         dominance,
         "sort_into_tiers",
-        lambda _pending, _state, chooser: [[move]],
+        lambda _pending, _state, chooser, on_update=None: [[move]],
     )
     monkeypatch.setattr(
         dominance,

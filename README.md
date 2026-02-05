@@ -124,6 +124,9 @@ in scope and records the resulting ranking in the `criticality` UDA. The
 prompt asks which move becomes pointless first if ignored and assumes
 criticality is transitive, so it minimizes comparisons the same way as
 dominance.
+Each comparison is saved immediately to `~/.config/twh/criticality.json`
+(override with `TWH_CRITICALITY_PATH`) so interrupted sessions can be resumed.
+Once comparisons are complete, twh writes the numeric `criticality` values.
 
 `twh ondeck` scans pending moves for missing metadata
 (imp/urg/opt_human/diff/mode/criticality) and missing dominance ordering. If
@@ -166,6 +169,9 @@ Manual option values are stored in `opt_human`; legacy `opt` values are still
 accepted for scoring and calibration. When the wizard runs, `twh ondeck`
 automatically runs `twh option --apply` after updates so opt_auto values stay in
 sync.
+Wizard metadata updates are written after each entry, dominance comparisons
+update UDAs after each choice, and criticality comparisons are saved after each
+choice so partial progress is preserved.
 Ondeck ordering also incorporates a precedence score based on `enablement`,
 `blocker_relief`, `estimate_hours` (falling back to `diff`), dependency
 centrality, and the move's mode (strategic/operational/explore). When a

@@ -1474,6 +1474,53 @@ def test_interactive_fill_missing_prompts_only_for_missing(monkeypatch, tmp_path
 
 
 @pytest.mark.unit
+def test_interactive_fill_missing_incremental_applies_each_entry():
+    """
+    Ensure incremental wizard applies updates after each entry.
+
+    Returns
+    -------
+    None
+        This test asserts per-field updates.
+    """
+    task = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Task 1",
+        project=None,
+        depends=[],
+        imp=None,
+        urg=3,
+        opt=4,
+        diff=None,
+        criticality=5.0,
+        mode="analysis",
+        dominates=[],
+        raw={},
+    )
+    responses = iter(["7", "2.5"])
+    applied = []
+
+    def fake_input(_prompt):
+        return next(responses)
+
+    def fake_apply(uuid, updates):
+        applied.append((uuid, updates))
+
+    updated = review.interactive_fill_missing_incremental(
+        task,
+        input_func=fake_input,
+        apply_func=fake_apply,
+    )
+
+    assert updated is True
+    assert applied == [
+        ("u1", {"imp": "7"}),
+        ("u1", {"diff": "2.5"}),
+    ]
+
+
+@pytest.mark.unit
 def test_interactive_fill_missing_reprompts_reserved_mode(monkeypatch, tmp_path, capsys):
     """
     Ensure reserved mode values are rejected with a retry prompt.
@@ -2110,10 +2157,12 @@ def test_run_ondeck_skips_wizard_when_complete(monkeypatch):
     )
 
     monkeypatch.setattr(review, "load_pending_tasks", lambda filters=None: [task])
+    import twh.dominance as dominance
+
     monkeypatch.setattr(
         review,
-        "_build_dominance_context",
-        lambda pending: ({}, [], set()),
+        "_build_dominance_state_and_missing",
+        lambda pending: (dominance.build_dominance_state(pending), set()),
     )
 
     def unexpected_fill(*_args, **_kwargs):
@@ -2125,7 +2174,7 @@ def test_run_ondeck_skips_wizard_when_complete(monkeypatch):
         option_calls.append(kwargs)
         return 0
 
-    monkeypatch.setattr(review, "interactive_fill_missing", unexpected_fill)
+    monkeypatch.setattr(review, "interactive_fill_missing_incremental", unexpected_fill)
     monkeypatch.setattr(option_value, "run_option_value", fake_run_option_value)
     monkeypatch.setattr(
         review,
@@ -2197,13 +2246,13 @@ def test_run_ondeck_includes_filtered_non_ready(monkeypatch):
 
     def fake_fill(task, input_func=input):
         calls.append(task.uuid)
-        return {}
+        return False
 
     def fake_report(*_args, **_kwargs):
         return review.ReviewReport(missing=[], candidates=[])
 
     monkeypatch.setattr(review, "load_pending_tasks", fake_load)
-    monkeypatch.setattr(review, "interactive_fill_missing", fake_fill)
+    monkeypatch.setattr(review, "interactive_fill_missing_incremental", fake_fill)
     monkeypatch.setattr(review, "build_review_report", fake_report)
     monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
 
@@ -2267,20 +2316,22 @@ def test_run_ondeck_includes_non_ready_without_filters(monkeypatch):
     calls = []
 
     monkeypatch.setattr(review, "load_pending_tasks", lambda filters=None: tasks)
+    import twh.dominance as dominance
+
     monkeypatch.setattr(
         review,
-        "_build_dominance_context",
-        lambda pending: ({}, [], set()),
+        "_build_dominance_state_and_missing",
+        lambda pending: (dominance.build_dominance_state(pending), set()),
     )
 
     def fake_fill(task, input_func=input):
         calls.append(task.uuid)
-        return {}
+        return False
 
     def fake_report(*_args, **_kwargs):
         return review.ReviewReport(missing=[], candidates=[])
 
-    monkeypatch.setattr(review, "interactive_fill_missing", fake_fill)
+    monkeypatch.setattr(review, "interactive_fill_missing_incremental", fake_fill)
     monkeypatch.setattr(review, "build_review_report", fake_report)
     monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
 
@@ -2327,10 +2378,12 @@ def test_run_ondeck_auto_applies_option_values(monkeypatch):
     ]
 
     monkeypatch.setattr(review, "load_pending_tasks", lambda filters=None: tasks)
+    import twh.dominance as dominance
+
     monkeypatch.setattr(
         review,
-        "_build_dominance_context",
-        lambda pending: ({}, [], set()),
+        "_build_dominance_state_and_missing",
+        lambda pending: (dominance.build_dominance_state(pending), set()),
     )
     monkeypatch.setattr(
         review,
@@ -2340,8 +2393,9 @@ def test_run_ondeck_auto_applies_option_values(monkeypatch):
 
     updates_applied = []
 
-    def fake_fill(_task, input_func=input):
-        return {"opt_human": "5"}
+    def fake_fill(task, input_func=input):
+        review.apply_updates(task.uuid, {"opt_human": "5"})
+        return True
 
     def fake_apply_updates(uuid, updates, get_setting=None):
         updates_applied.append((uuid, updates))
@@ -2352,7 +2406,7 @@ def test_run_ondeck_auto_applies_option_values(monkeypatch):
         option_calls.append(kwargs)
         return 0
 
-    monkeypatch.setattr(review, "interactive_fill_missing", fake_fill)
+    monkeypatch.setattr(review, "interactive_fill_missing_incremental", fake_fill)
     monkeypatch.setattr(review, "apply_updates", fake_apply_updates)
     monkeypatch.setattr(option_value, "run_option_value", fake_run_option_value)
 
@@ -2440,24 +2494,15 @@ def test_run_ondeck_collects_dominance(monkeypatch):
     def unexpected_fill(*_args, **_kwargs):
         raise AssertionError("Metadata wizard should not run for criticality-only moves.")
 
-    monkeypatch.setattr(review, "interactive_fill_missing", unexpected_fill)
+    monkeypatch.setattr(review, "interactive_fill_missing_incremental", unexpected_fill)
     monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
+    monkeypatch.setattr(dominance, "ensure_dominance_udas", lambda *_a, **_k: None)
 
-    calls = {}
+    calls = []
 
-    def fake_sort_into_tiers(pending, state, chooser):
-        calls["sort"] = [move.uuid for move in pending]
-        return [[pending[0]], [pending[1]]]
+    def fake_apply_updates(updates, **_kwargs):
+        calls.append(updates)
 
-    def fake_build_updates(tiers):
-        calls["build"] = [[move.uuid for move in tier] for tier in tiers]
-        return {}
-
-    def fake_apply_updates(updates):
-        calls["apply"] = updates
-
-    monkeypatch.setattr(dominance, "sort_into_tiers", fake_sort_into_tiers)
-    monkeypatch.setattr(dominance, "build_dominance_updates", fake_build_updates)
     monkeypatch.setattr(dominance, "apply_dominance_updates", fake_apply_updates)
 
     exit_code = review.run_ondeck(
@@ -2467,13 +2512,17 @@ def test_run_ondeck_collects_dominance(monkeypatch):
         strict_mode=False,
         include_dominated=False,
         filters=None,
-        input_func=lambda _prompt: "",
+        input_func=lambda _prompt: "B",
     )
 
     assert exit_code == 0
-    assert calls["sort"] == ["u1", "u2"]
-    assert calls["build"] == [["u1"], ["u2"]]
-    assert calls["apply"] == {}
+    assert len(calls) == 1
+    updates = calls[0]
+    assert set(updates.keys()) == {"u1", "u2"}
+    assert updates["u1"].dominates == ["u2"]
+    assert updates["u1"].dominated_by == []
+    assert updates["u2"].dominates == []
+    assert updates["u2"].dominated_by == ["u1"]
 
 
 @pytest.mark.unit
@@ -2520,20 +2569,25 @@ def test_run_ondeck_collects_criticality(monkeypatch):
     ]
 
     monkeypatch.setattr(review, "load_pending_tasks", lambda filters=None: tasks)
+    import twh.dominance as dominance
+
     monkeypatch.setattr(
         review,
-        "_build_dominance_context",
-        lambda pending: ({}, [], set()),
+        "_build_dominance_state_and_missing",
+        lambda pending: (dominance.build_dominance_state(pending), set()),
     )
     monkeypatch.setattr(
         review,
         "build_review_report",
         lambda *_args, **_kwargs: review.ReviewReport(missing=[], candidates=[]),
     )
-    monkeypatch.setattr(review, "interactive_fill_missing", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
 
     import twh.criticality as criticality
+
+    monkeypatch.setattr(criticality, "ensure_criticality_uda", lambda *_a, **_k: None)
+    monkeypatch.setattr(dominance, "apply_dominance_updates", lambda *_a, **_k: None)
+    monkeypatch.setattr(dominance, "ensure_dominance_udas", lambda *_a, **_k: None)
 
     calls = {}
 
@@ -2559,7 +2613,7 @@ def test_run_ondeck_collects_criticality(monkeypatch):
         strict_mode=False,
         include_dominated=False,
         filters=None,
-        input_func=lambda _prompt: "",
+        input_func=lambda _prompt: "A",
     )
 
     assert exit_code == 0
