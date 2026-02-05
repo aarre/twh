@@ -456,6 +456,7 @@ def test_run_dominance_quiet_suppresses_status(monkeypatch, capsys):
         "apply_dominance_updates",
         lambda *_args, **_kwargs: None,
     )
+    monkeypatch.setattr(dominance, "missing_udas", lambda *_args, **_kwargs: [])
 
     exit_code = dominance.run_dominance(quiet=True)
 
@@ -472,9 +473,6 @@ def test_apply_dominance_updates_requires_udas(tmp_path, monkeypatch):
     None
         This test asserts UDA guard behavior.
     """
-    taskrc = tmp_path / ".taskrc"
-    taskrc.write_text("", encoding="utf-8")
-    monkeypatch.setenv("TASKRC", str(taskrc))
     monkeypatch.setattr(
         dominance,
         "missing_udas",

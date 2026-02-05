@@ -2,9 +2,12 @@
 Tests for restoring move descriptions from Taskwarrior history.
 """
 
+from pathlib import Path
+
 import pytest
 
 import twh.restore_descriptions as restore
+import twh.taskwarrior as taskwarrior
 
 
 @pytest.mark.parametrize(
@@ -99,26 +102,43 @@ def test_apply_restores_respects_apply_flag(apply):
         assert calls == []
 
 
-@pytest.mark.parametrize(
-    ("taskrc", "data", "expected"),
-    [
-        (None, None, []),
-        ("C:/taskrc", None, ["rc:C:/taskrc"]),
-        (None, "D:/data", ["rc.data.location:D:/data"]),
-        ("C:/taskrc", "D:/data", ["rc:C:/taskrc", "rc.data.location:D:/data"]),
-    ],
-)
 @pytest.mark.unit
-def test_build_rc_overrides(taskrc, data, expected):
+def test_build_rc_overrides_uses_canonical(monkeypatch, tmp_path):
     """
-    Ensure rc overrides include taskrc and data location.
+    Ensure rc overrides use the canonical taskrc path.
 
     Returns
     -------
     None
-        This test asserts rc override formatting.
+        This test asserts canonical rc overrides.
     """
-    assert restore.build_rc_overrides(taskrc, data) == expected
+    canonical = tmp_path / ".taskrc"
+    canonical.write_text("", encoding="utf-8")
+    monkeypatch.setattr(restore, "get_taskrc_path", lambda: canonical)
+
+    assert restore.build_rc_overrides(None, None) == [f"rc:{canonical}"]
+    assert restore.build_rc_overrides(str(canonical), "D:/data") == [
+        f"rc:{canonical}",
+        "rc.data.location:D:/data",
+    ]
+
+
+@pytest.mark.unit
+def test_build_rc_overrides_rejects_noncanonical(monkeypatch, tmp_path):
+    """
+    Ensure non-canonical taskrc values are rejected.
+
+    Returns
+    -------
+    None
+        This test asserts canonical taskrc enforcement.
+    """
+    canonical = tmp_path / ".taskrc"
+    canonical.write_text("", encoding="utf-8")
+    monkeypatch.setattr(restore, "get_taskrc_path", lambda: canonical)
+
+    with pytest.raises(RuntimeError):
+        restore.build_rc_overrides("C:/taskrc", None)
 
 
 @pytest.mark.unit
@@ -139,6 +159,8 @@ def test_export_tasks_uses_rc_overrides(monkeypatch):
 
     monkeypatch.setattr(restore.subprocess, "run", fake_run)
 
-    restore.export_tasks(["description:diff:"], ["rc:C:/taskrc"])
+    monkeypatch.setattr(taskwarrior, "get_taskrc_path", lambda: Path("C:/taskrc"))
+
+    restore.export_tasks(["description:diff:"], ["rc:/other"])
 
     assert calls == [["task", "rc:C:/taskrc", "description:diff:", "export"]]

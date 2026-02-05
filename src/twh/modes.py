@@ -362,8 +362,11 @@ def ensure_taskwarrior_mode_value(
         return False
     updated = sorted(_dedupe_modes([*existing, normalized]))
     if runner is None:
+        from .taskwarrior import apply_taskrc_overrides
+
         def task_runner(args, **kwargs):
-            return subprocess.run(["task", *args], **kwargs)
+            task_args = apply_taskrc_overrides(list(args))
+            return subprocess.run(["task", *task_args], **kwargs)
 
         runner = task_runner
     result = runner(

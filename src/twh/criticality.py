@@ -16,6 +16,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set
 
 from .review import ReviewTask, load_pending_tasks
 from .taskwarrior import (
+    apply_taskrc_overrides,
     describe_missing_udas,
     filter_modified_zero_lines,
     missing_udas,
@@ -363,6 +364,10 @@ def ensure_criticality_uda(
     RuntimeError
         If the criticality UDA is missing.
     """
+    if get_setting is None:
+        from .taskwarrior import get_taskwarrior_setting
+
+        get_setting = get_taskwarrior_setting
     missing = missing_udas(
         ["criticality"],
         get_setting=get_setting,
@@ -691,7 +696,8 @@ def apply_criticality_updates(
         raise RuntimeError(describe_missing_udas(missing))
     if runner is None:
         def task_runner(args, **kwargs):
-            return subprocess.run(["task", *args], **kwargs)
+            task_args = apply_taskrc_overrides(list(args))
+            return subprocess.run(["task", *task_args], **kwargs)
 
         runner = task_runner
     for uuid, value in updates.items():

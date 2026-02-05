@@ -585,6 +585,68 @@ def test_collect_missing_metadata_includes_dominance():
     assert missing[1].missing == ("dominance",)
 
 
+@pytest.mark.unit
+def test_dominance_tie_uuids_filters_tiers():
+    """
+    Ensure dominance tie UUIDs are collected for multi-item tiers.
+
+    Returns
+    -------
+    None
+        This test asserts tie UUID filtering.
+    """
+    tasks = [
+        review.ReviewTask(
+            uuid="a",
+            id=1,
+            description="Task A",
+            project=None,
+            depends=[],
+            imp=1,
+            urg=1,
+            opt=1,
+            diff=1.0,
+            criticality=6.0,
+            mode="analysis",
+            dominates=[],
+            raw={},
+        ),
+        review.ReviewTask(
+            uuid="b",
+            id=2,
+            description="Task B",
+            project=None,
+            depends=[],
+            imp=1,
+            urg=1,
+            opt=1,
+            diff=1.0,
+            criticality=6.0,
+            mode="analysis",
+            dominates=[],
+            raw={},
+        ),
+        review.ReviewTask(
+            uuid="c",
+            id=3,
+            description="Task C",
+            project=None,
+            depends=[],
+            imp=1,
+            urg=1,
+            opt=1,
+            diff=1.0,
+            criticality=6.0,
+            mode="analysis",
+            dominates=[],
+            raw={},
+        ),
+    ]
+    tiers = [[tasks[0], tasks[1]], [tasks[2]]]
+
+    assert review.dominance_tie_uuids(tiers) == {"a", "b"}
+
+
 @pytest.mark.parametrize(
     ("current_mode", "required_mode", "expected"),
     [
@@ -1304,6 +1366,71 @@ def test_format_ondeck_candidates_table(start, expect_marker, expect_color):
 
 
 @pytest.mark.parametrize(
+    ("annotations", "expected_id"),
+    [
+        ([], "1"),
+        (["Note"], "1*"),
+    ],
+)
+@pytest.mark.unit
+def test_format_ondeck_candidates_annotation_marker(annotations, expected_id):
+    """
+    Ensure ondeck candidates mark IDs that have annotations.
+
+    Parameters
+    ----------
+    annotations : list[str]
+        Annotation descriptions to attach to the move.
+    expected_id : str
+        Expected ID string, including the annotation marker when applicable.
+
+    Returns
+    -------
+    None
+        This test asserts ondeck ID annotation markers.
+    """
+    raw_annotations = [{"description": note} for note in annotations]
+    raw = {
+        "uuid": "u1",
+        "id": 1,
+        "description": "Move A",
+        "urgency": 1.23,
+        "annotations": raw_annotations,
+    }
+
+    task = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Move A",
+        project=None,
+        depends=[],
+        imp=1,
+        urg=1,
+        opt=1,
+        diff=1.0,
+        mode=None,
+        dominates=[],
+        annotations=list(annotations),
+        raw=raw,
+    )
+    candidate = review.ScoredTask(
+        task=task,
+        score=9.876,
+        components={},
+    )
+
+    lines = review.format_ondeck_candidates(
+        [candidate],
+        columns=["description", "id", "urgency"],
+        labels=["Description", "ID", "Urg"],
+    )
+
+    data_line = lines[2]
+    clean_line = data_line.replace(review.ANSI_RESET, "")
+    parts = re.split(r"\s{2,}", clean_line.strip())
+    assert parts[0] == expected_id
+
+@pytest.mark.parametrize(
     ("start", "expected_marker"),
     [
         (None, ""),
@@ -1868,9 +1995,6 @@ def test_apply_updates_requires_udas(tmp_path, monkeypatch):
     None
         This test asserts UDA guard behavior.
     """
-    taskrc = tmp_path / ".taskrc"
-    taskrc.write_text("", encoding="utf-8")
-    monkeypatch.setenv("TASKRC", str(taskrc))
     calls = []
 
     def fake_runner(args, capture_output=False, **_kwargs):
@@ -2159,10 +2283,12 @@ def test_run_ondeck_skips_wizard_when_complete(monkeypatch):
     monkeypatch.setattr(review, "load_pending_tasks", lambda filters=None: [task])
     import twh.dominance as dominance
 
+    state = dominance.build_dominance_state([task])
+    tiers = [[task]]
     monkeypatch.setattr(
         review,
-        "_build_dominance_state_and_missing",
-        lambda pending: (dominance.build_dominance_state(pending), set()),
+        "_build_dominance_context",
+        lambda pending: (state, tiers, set()),
     )
 
     def unexpected_fill(*_args, **_kwargs):
@@ -2197,14 +2323,14 @@ def test_run_ondeck_skips_wizard_when_complete(monkeypatch):
 
 
 @pytest.mark.unit
-def test_run_ondeck_includes_filtered_non_ready(monkeypatch):
+def test_run_ondeck_includes_tied_non_ready_with_filters(monkeypatch):
     """
-    Ensure filtered ondeck runs the wizard for non-ready tasks in scope.
+    Ensure ondeck prompts for tied moves even when non-ready and filtered.
 
     Returns
     -------
     None
-        This test asserts wizard scope behavior.
+        This test asserts tie-based wizard scope behavior.
     """
     tasks = [
         review.ReviewTask(
@@ -2225,15 +2351,15 @@ def test_run_ondeck_includes_filtered_non_ready(monkeypatch):
         review.ReviewTask(
             uuid="u2",
             id=2,
-            description="Blocking task",
+            description="Ready task",
             project="work",
             depends=[],
-            imp=1,
-            urg=1,
-            opt=1,
-            diff=1.0,
+            imp=None,
+            urg=None,
+            opt=None,
+            diff=None,
             criticality=5.0,
-            mode="editorial",
+            mode=None,
             dominates=[],
             raw={},
         ),
@@ -2252,6 +2378,14 @@ def test_run_ondeck_includes_filtered_non_ready(monkeypatch):
         return review.ReviewReport(missing=[], candidates=[])
 
     monkeypatch.setattr(review, "load_pending_tasks", fake_load)
+    import twh.dominance as dominance
+
+    state = dominance.build_dominance_state(tasks)
+    monkeypatch.setattr(
+        review,
+        "_build_dominance_context",
+        lambda pending: (state, [[tasks[0], tasks[1]]], set()),
+    )
     monkeypatch.setattr(review, "interactive_fill_missing_incremental", fake_fill)
     monkeypatch.setattr(review, "build_review_report", fake_report)
     monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
@@ -2267,26 +2401,26 @@ def test_run_ondeck_includes_filtered_non_ready(monkeypatch):
     )
 
     assert exit_code == 0
-    assert calls == ["u1"]
+    assert calls == ["u2", "u1"]
 
 
 @pytest.mark.unit
-def test_run_ondeck_includes_non_ready_without_filters(monkeypatch):
+def test_run_ondeck_skips_metadata_without_dominance_ties(monkeypatch):
     """
-    Ensure ondeck prompts for missing metadata on blocked moves by default.
+    Ensure ondeck skips metadata collection when dominance tiers are distinct.
 
     Returns
     -------
     None
-        This test asserts wizard scope behavior without filters.
+        This test asserts metadata prompts require dominance ties.
     """
     tasks = [
         review.ReviewTask(
             uuid="u1",
             id=1,
-            description="Blocked move",
+            description="Move 1",
             project="work",
-            depends=["u2"],
+            depends=[],
             imp=None,
             urg=None,
             opt=None,
@@ -2299,7 +2433,7 @@ def test_run_ondeck_includes_non_ready_without_filters(monkeypatch):
         review.ReviewTask(
             uuid="u2",
             id=2,
-            description="Ready move",
+            description="Move 2",
             project="work",
             depends=[],
             imp=None,
@@ -2313,26 +2447,30 @@ def test_run_ondeck_includes_non_ready_without_filters(monkeypatch):
         ),
     ]
 
-    calls = []
-
     monkeypatch.setattr(review, "load_pending_tasks", lambda filters=None: tasks)
     import twh.dominance as dominance
+    import twh.criticality as criticality
 
+    state = dominance.build_dominance_state(tasks)
     monkeypatch.setattr(
         review,
-        "_build_dominance_state_and_missing",
-        lambda pending: (dominance.build_dominance_state(pending), set()),
+        "_build_dominance_context",
+        lambda pending: (state, [[tasks[0]], [tasks[1]]], set()),
     )
 
-    def fake_fill(task, input_func=input):
-        calls.append(task.uuid)
-        return False
+    def unexpected_fill(*_args, **_kwargs):
+        raise AssertionError("Metadata wizard should not run without ties.")
 
-    def fake_report(*_args, **_kwargs):
-        return review.ReviewReport(missing=[], candidates=[])
+    def unexpected_criticality(*_args, **_kwargs):
+        raise AssertionError("Criticality should not run without ties.")
 
-    monkeypatch.setattr(review, "interactive_fill_missing_incremental", fake_fill)
-    monkeypatch.setattr(review, "build_review_report", fake_report)
+    monkeypatch.setattr(review, "interactive_fill_missing_incremental", unexpected_fill)
+    monkeypatch.setattr(criticality, "sort_into_tiers", unexpected_criticality)
+    monkeypatch.setattr(
+        review,
+        "build_review_report",
+        lambda *_args, **_kwargs: review.ReviewReport(missing=[], candidates=[]),
+    )
     monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
 
     exit_code = review.run_ondeck(
@@ -2346,13 +2484,12 @@ def test_run_ondeck_includes_non_ready_without_filters(monkeypatch):
     )
 
     assert exit_code == 0
-    assert calls == ["u2", "u1"]
 
 
 @pytest.mark.unit
 def test_run_ondeck_auto_applies_option_values(monkeypatch):
     """
-    Ensure ondeck triggers option value auto-apply when metadata is missing.
+    Ensure ondeck triggers option value auto-apply for tied moves.
 
     Returns
     -------
@@ -2375,15 +2512,31 @@ def test_run_ondeck_auto_applies_option_values(monkeypatch):
             dominates=[],
             raw={},
         ),
+        review.ReviewTask(
+            uuid="u2",
+            id=2,
+            description="Move 2",
+            project="work",
+            depends=[],
+            imp=2,
+            urg=3,
+            opt=None,
+            diff=1.0,
+            criticality=6.0,
+            mode="analysis",
+            dominates=[],
+            raw={},
+        ),
     ]
 
     monkeypatch.setattr(review, "load_pending_tasks", lambda filters=None: tasks)
     import twh.dominance as dominance
 
+    state = dominance.build_dominance_state(tasks)
     monkeypatch.setattr(
         review,
-        "_build_dominance_state_and_missing",
-        lambda pending: (dominance.build_dominance_state(pending), set()),
+        "_build_dominance_context",
+        lambda pending: (state, [[tasks[0], tasks[1]]], set()),
     )
     monkeypatch.setattr(
         review,
@@ -2393,9 +2546,14 @@ def test_run_ondeck_auto_applies_option_values(monkeypatch):
 
     updates_applied = []
 
+    calls = []
+
     def fake_fill(task, input_func=input):
-        review.apply_updates(task.uuid, {"opt_human": "5"})
-        return True
+        calls.append(task.uuid)
+        if task.uuid == "u1":
+            review.apply_updates(task.uuid, {"opt_human": "5"})
+            return True
+        return False
 
     def fake_apply_updates(uuid, updates, get_setting=None):
         updates_applied.append((uuid, updates))
@@ -2422,6 +2580,7 @@ def test_run_ondeck_auto_applies_option_values(monkeypatch):
 
     assert exit_code == 0
     assert updates_applied == [("u1", {"opt_human": "5"})]
+    assert calls == ["u1", "u2"]
     assert option_calls == [
         {
             "filters": ["project:work"],
@@ -2492,7 +2651,7 @@ def test_run_ondeck_collects_dominance(monkeypatch):
     )
 
     def unexpected_fill(*_args, **_kwargs):
-        raise AssertionError("Metadata wizard should not run for criticality-only moves.")
+        raise AssertionError("Metadata wizard should not run during dominance collection.")
 
     monkeypatch.setattr(review, "interactive_fill_missing_incremental", unexpected_fill)
     monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
@@ -2528,7 +2687,7 @@ def test_run_ondeck_collects_dominance(monkeypatch):
 @pytest.mark.unit
 def test_run_ondeck_collects_criticality(monkeypatch):
     """
-    Ensure ondeck triggers criticality collection when ratings are missing.
+    Ensure ondeck collects criticality only for dominance ties.
 
     Returns
     -------
@@ -2566,15 +2725,31 @@ def test_run_ondeck_collects_criticality(monkeypatch):
             dominates=[],
             raw={},
         ),
+        review.ReviewTask(
+            uuid="u3",
+            id=3,
+            description="Move 3",
+            project=None,
+            depends=[],
+            imp=1,
+            urg=1,
+            opt=1,
+            diff=1.0,
+            criticality=None,
+            mode="editorial",
+            dominates=[],
+            raw={},
+        ),
     ]
 
     monkeypatch.setattr(review, "load_pending_tasks", lambda filters=None: tasks)
     import twh.dominance as dominance
 
+    state = dominance.build_dominance_state(tasks)
     monkeypatch.setattr(
         review,
-        "_build_dominance_state_and_missing",
-        lambda pending: (dominance.build_dominance_state(pending), set()),
+        "_build_dominance_context",
+        lambda pending: (state, [[tasks[0], tasks[1]], [tasks[2]]], set()),
     )
     monkeypatch.setattr(
         review,

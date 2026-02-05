@@ -69,6 +69,58 @@ def test_record_criticality_comparison_persists(
 
 
 @pytest.mark.unit
+def test_ensure_criticality_uda_uses_default_setting_lookup(monkeypatch):
+    """
+    Ensure the criticality UDA check supplies a default setting lookup.
+
+    Returns
+    -------
+    None
+        This test asserts the missing UDA check is configured.
+    """
+    captured = {}
+
+    def fake_missing_udas(fields, get_setting=None, allow_taskrc_fallback=False):
+        captured["fields"] = fields
+        captured["get_setting"] = get_setting
+        return []
+
+    monkeypatch.setattr(criticality, "missing_udas", fake_missing_udas)
+
+    criticality.ensure_criticality_uda()
+
+    assert captured["fields"] == ["criticality"]
+    assert callable(captured["get_setting"])
+
+
+@pytest.mark.unit
+def test_ensure_criticality_uda_respects_custom_setting_lookup(monkeypatch):
+    """
+    Ensure the criticality UDA check uses the provided getter.
+
+    Returns
+    -------
+    None
+        This test asserts custom getters are honored.
+    """
+    sentinel = object()
+    captured = {}
+
+    def fake_missing_udas(fields, get_setting=None, allow_taskrc_fallback=False):
+        captured["get_setting"] = get_setting
+        return []
+
+    def custom_get_setting(_key):
+        return sentinel
+
+    monkeypatch.setattr(criticality, "missing_udas", fake_missing_udas)
+
+    criticality.ensure_criticality_uda(get_setting=custom_get_setting)
+
+    assert captured["get_setting"] is custom_get_setting
+
+
+@pytest.mark.unit
 def test_sort_into_tiers_respects_existing_values_without_prompt():
     """
     Ensure stored criticality values avoid prompts.

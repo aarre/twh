@@ -35,17 +35,17 @@ Already implemented, among other requirements:
 * When twh is invoked inside a Taskwarrior context, twh should restrict its output (both lists and graphs, both standard and reverse) according to the Taskwarrior context.
 * `twh` supports a synthetic `blocks` field for `add`/`modify`, translating it into Taskwarrior `depends` updates without new UDAs.
 * All user-facing output and documentation use "moves" terminology instead of "tasks".
-* `twh dominance` collects dominance ordering with pairwise prompts (transitive, dependency-implied dominance) and writes `dominates`/`dominated_by` UDAs; tie decisions are persisted so they are not re-prompted; `twh ondeck` includes this dominance stage whenever metadata or ordering is incomplete.
-* `twh criticality` collects time-criticality ordering with pairwise prompts (transitive) and writes `criticality` UDA values; prompts explain the decay framing and ask which move becomes pointless first if ignored; `twh ondeck` requires criticality before showing the report.
-* `twh ondeck` tracks `diff` (difficulty hours) alongside `imp`/`urg`/`opt_human` (legacy `opt` accepted)/`mode`/`criticality`, treats missing dominance/criticality/diff as incomplete metadata, and ranks moves by dominance tier before scoring ties.
-* `twh ondeck` prompts for missing metadata on all moves in scope (including blocked) whenever metadata or dominance ordering is incomplete.
+* `twh dominance` collects dominance ordering with pairwise prompts (transitive, dependency-implied dominance) and writes `dominates`/`dominated_by` UDAs; tie decisions are persisted so they are not re-prompted; `twh ondeck` resolves dominance ordering before tie-breaking metadata collection.
+* `twh criticality` collects time-criticality ordering with pairwise prompts (transitive) and writes `criticality` UDA values; prompts explain the decay framing and ask which move becomes pointless first if ignored; `twh ondeck` only collects criticality for moves tied within a dominance tier.
+* `twh ondeck` tracks `diff` (difficulty hours) alongside `imp`/`urg`/`opt_human` (legacy `opt` accepted)/`mode`/`criticality` and ranks moves by dominance tier before scoring ties; missing metadata and criticality are only collected for moves in dominance ties.
+* `twh ondeck` prompts for missing metadata on moves in dominance ties (including blocked moves when tied).
 * `twh ondeck` formats annotation timestamps into a local, human-readable date-time string (US Eastern).
 * Suppress Taskwarrior noise like `Modified 0 tasks.` in `twh` outputs.
 * `twh graph` uses fixed-width Graphviz boxes and wraps move descriptions across lines.
 * Dominance prompts use A/B/C choices with labels like `[A] Move ID 3: ...` to avoid numeric confusion with move IDs.
 * Dominance should never prompt for move pairs already related by dependencies (including when dependencies are stored as IDs), and prompts should show approximate progress (comparisons complete/remaining).
 * Dominance missing/unknown pair checks use reachability maps to avoid slow ondeck/dominance runs on large move sets.
-* `twh ondeck` defers dominance-missing checks until after metadata prompts when any metadata is missing, so the first prompt appears quickly.
+* `twh ondeck` resolves dominance ordering before prompting for tie-breaking metadata, so metadata prompts only appear after dominance comparisons.
 * `twh ondeck` outputs its top-move list using the default Taskwarrior report columns/colors, but places the ID column first and relabels urgency to `Rank` for the composite ordering (1 is highest) while adding a numeric `Score` column; it defaults to showing 25 candidates.
 * `twh add` suppresses Taskwarrior modify/project completion noise after creating a move (dominance and blocks updates run quietly unless there are errors).
 * Taskwarrior project-completion summary lines are filtered from twh output when relaying command results.
@@ -58,8 +58,10 @@ Already implemented, among other requirements:
 * README now includes WSL-friendly installation and reinstall steps (venv + pipx) for dependencies like prompt_toolkit.
 * README now includes uv-based environment/dependency setup and reinstall steps.
 * `twh ondeck` marks started moves as in progress in its output, using a green highlight for visibility.
+* `twh ondeck` appends `*` to move IDs in the report when the move has annotations.
+* `twh` always uses Taskwarrior 3 via the `task` binary and the canonical `~/.taskrc`, ignoring `TASKRC` or `rc:` overrides.
 * Enforce LF line endings via `.gitattributes` and keep `core.autocrlf=input` for WSL development to avoid CRLF warnings.
-* `twh ondeck` excludes moves whose `start` time is in the future from its report output, but still includes them in the missing-metadata wizard.
+* `twh ondeck` excludes moves whose `start` time is in the future from its report output, but still includes tied moves in the missing-metadata wizard.
 * Before any operation that could modify move descriptions (including writing UDAs that might be misconfigured), halt and ask for guidance. If a required UDA is missing and its absence could overwrite descriptions, stop and ask for guidance before proceeding.
 * Move descriptions are sacrosanct. Never change a move description without halting all processes and requesting explicit permission.
 * `twh add` is an interactive flow that prompts for description, project, tags, due date, blocks, and metadata (imp/urg/opt_human/diff/mode), then runs dominance sorting.
@@ -92,7 +94,7 @@ Already implemented, among other requirements:
 - Dependency values are normalized by stripping leading `+`/`-` prefixes before writing `depends` updates.
 - `twh` delegates to Taskwarrior via `exec` when no internal handling is needed, and builds the Typer app lazily to reduce startup overhead.
 - `twh simple` creates a Taskwarrior `report.simple` (if missing) by copying the default report and replacing the description column with `description.count`, then runs `task simple` directly; on WSL it disables pager/confirmations/hooks unless `TWH_SIMPLE_PAGER=1` is set, strips `limit:page` from the simple report, and runs with stdin closed to avoid interactive pauses.
-- `twh ondeck` inspects pending moves for missing `imp`, `urg`, `opt_human` (legacy `opt` accepted), `diff`, `mode`, `criticality`, and dominance ordering (ties persisted via `dominated_by`); when anything is missing it runs the wizard for all moves in scope (including blocked), collects criticality rankings, auto-runs `twh option --apply` after updates, and recommends the next move using dominance tiers before the scoring model; mode filters (`--mode`, `--strict-mode`) and dominance UDAs influence candidate selection, extra Taskwarrior filter tokens after `twh ondeck` scope the set, and filtered runs still apply the wizard even for blocked moves in scope.
+- `twh ondeck` inspects pending moves for dominance ordering first, then prompts for missing `imp`, `urg`, `opt_human` (legacy `opt` accepted), `diff`, `mode`, and `criticality` only for moves tied within a dominance tier; it auto-runs `twh option --apply` after metadata updates, and recommends the next move using dominance tiers before the scoring model; mode filters (`--mode`, `--strict-mode`) and dominance UDAs influence candidate selection, extra Taskwarrior filter tokens after `twh ondeck` scope the set, and filtered runs still apply the wizard for tied moves even when blocked.
 - `twh option` calibrates option value weights from manual `opt_human` ratings (falling back to `opt`), predicts `opt_auto` values using dependency structure and metadata, and `--apply` also copies legacy `opt` values into `opt_human` when missing.
 - `twh calibrate` stores precedence/option calibration weights in `~/.config/twh/calibration.toml`, uses pairwise A/B choices to tune precedence weights, and can apply opt_auto updates after calibrating.
 - `twh start`/`twh stop` log time entries (uuid/description/project/tags/mode/start/end) to `~/.task/twh-time.db`, auto-stop other active moves on start, and `twh time` reports by task/project/tag/mode with day/week/month/year/range bucketing plus date filtering and record edits.
@@ -101,4 +103,5 @@ Already implemented, among other requirements:
 - On Windows/PowerShell, Scoop `coreutils` `head` (Cygwin) can fail with `Couldn't reserve space for cygwin's heap`; prefer `Get-Content -TotalCount N <file>`/`Select-Object -First N`, or install `uutils-coreutils` and ensure it precedes `coreutils` in `PATH`.
 - Tests that assert UDA-missing behavior should monkeypatch `missing_udas` or `get_defined_udas` to avoid relying on the host Taskwarrior config.
 - Tests that exercise mode prompts or `register_mode` should set `TWH_MODES_PATH` to a temp path to avoid writing to `~/.config/twh/modes.json`.
+- `missing_udas` accepts `get_setting=None` and falls back to `get_taskwarrior_setting`, preventing TypeErrors when callers pass None.
 

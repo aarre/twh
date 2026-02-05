@@ -19,6 +19,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tupl
 
 from .taskwarrior import (
     apply_case_insensitive_overrides,
+    apply_taskrc_overrides,
     describe_missing_udas,
     filter_modified_zero_lines,
     get_tasks_from_taskwarrior,
@@ -71,8 +72,9 @@ def build_tree_prefix(ancestor_has_more: List[bool]) -> str:
 
 def get_taskwarrior_setting(key: str) -> Optional[str]:
     try:
+        task_args = apply_taskrc_overrides(["_get", key])
         result = subprocess.run(
-            ["task", "_get", key],
+            ["task", *task_args],
             capture_output=True,
             text=True,
             check=True
@@ -1274,6 +1276,7 @@ def run_task_command(
     if stdin is not None:
         kwargs["stdin"] = stdin
     task_args = apply_case_insensitive_overrides(args)
+    task_args = apply_taskrc_overrides(task_args)
     return subprocess.run(["task", *task_args], **kwargs)
 
 
@@ -1292,6 +1295,7 @@ def exec_task_command(args: List[str]) -> int:
         Unreachable return code placeholder.
     """
     task_args = apply_case_insensitive_overrides(args)
+    task_args = apply_taskrc_overrides(task_args)
     os.execvp("task", ["task", *task_args])
     return 1
 

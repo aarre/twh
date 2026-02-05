@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set,
 
 from .taskwarrior import (
     apply_case_insensitive_overrides,
+    apply_taskrc_overrides,
     describe_missing_udas,
     filter_modified_zero_lines,
     missing_udas,
@@ -295,6 +296,7 @@ def run_task_command(
     if stdin is not None:
         kwargs["stdin"] = stdin
     task_args = apply_case_insensitive_overrides(list(args))
+    task_args = apply_taskrc_overrides(task_args)
     return subprocess.run(["task", *task_args], **kwargs)
 
 
@@ -811,6 +813,141 @@ def collect_missing_metadata(
         )
     )
     return items
+
+
+def collect_missing_metadata_for_uuids(
+    pending: Iterable[ReviewTask],
+    ready: Iterable[ReviewTask],
+    uuids: Iterable[str],
+    dominance_missing: Optional[set[str]] = None,
+) -> List[MissingMetadata]:
+    """
+    Collect missing metadata for a subset of moves.
+
+    Parameters
+    ----------
+    pending : Iterable[ReviewTask]
+        Pending moves.
+    ready : Iterable[ReviewTask]
+        Ready moves.
+    uuids : Iterable[str]
+        UUIDs to include in the scan.
+    dominance_missing : Optional[set[str]]
+        UUIDs missing dominance ordering.
+
+    Returns
+    -------
+    List[MissingMetadata]
+        Missing metadata records for the selected moves.
+    """
+    target = {uuid for uuid in uuids}
+    if not target:
+        return []
+    ready_uuids = {task.uuid for task in ready}
+    dominance_missing = dominance_missing or set()
+    items: List[MissingMetadata] = []
+    for task in pending:
+        if task.uuid not in target:
+            continue
+        missing = list(missing_fields(task))
+        if task.uuid in dominance_missing:
+            missing.append("dominance")
+        missing = tuple(missing)
+        if not missing:
+            continue
+        items.append(
+            MissingMetadata(
+                task=task,
+                missing=missing,
+                is_ready=task.uuid in ready_uuids,
+            )
+        )
+    items.sort(
+        key=lambda item: (
+            not item.is_ready,
+            item.task.project or "",
+            item.task.id if item.task.id is not None else 10**9,
+        )
+    )
+    return items
+
+
+def collect_dominance_missing(
+    pending: Iterable[ReviewTask],
+    ready: Iterable[ReviewTask],
+    dominance_missing: set[str],
+) -> List[MissingMetadata]:
+    """
+    Collect missing dominance ordering entries.
+
+    Parameters
+    ----------
+    pending : Iterable[ReviewTask]
+        Pending moves.
+    ready : Iterable[ReviewTask]
+        Ready moves.
+    dominance_missing : set[str]
+        UUIDs missing dominance ordering.
+
+    Returns
+    -------
+    List[MissingMetadata]
+        Missing dominance metadata records.
+    """
+    ready_uuids = {task.uuid for task in ready}
+    items: List[MissingMetadata] = []
+    for task in pending:
+        if task.uuid not in dominance_missing:
+            continue
+        items.append(
+            MissingMetadata(
+                task=task,
+                missing=("dominance",),
+                is_ready=task.uuid in ready_uuids,
+            )
+        )
+    items.sort(
+        key=lambda item: (
+            not item.is_ready,
+            item.task.project or "",
+            item.task.id if item.task.id is not None else 10**9,
+        )
+    )
+    return items
+
+
+def dominance_tie_uuids(
+    dominance_tiers: Iterable[Iterable[ReviewTask]],
+) -> set[str]:
+    """
+    Return UUIDs for moves that share a dominance tier.
+
+    Parameters
+    ----------
+    dominance_tiers : Iterable[Iterable[ReviewTask]]
+        Dominance tiers to inspect.
+
+    Returns
+    -------
+    set[str]
+        UUIDs for moves that are tied in dominance ordering.
+
+    Examples
+    --------
+    >>> tiers = [
+    ...     [ReviewTask("a", 1, "A", None, [], 1, 1, 1), ReviewTask("b", 2, "B", None, [], 1, 1, 1)],
+    ...     [ReviewTask("c", 3, "C", None, [], 1, 1, 1)],
+    ... ]
+    >>> sorted(dominance_tie_uuids(tiers))
+    ['a', 'b']
+    """
+    ties: set[str] = set()
+    for tier in dominance_tiers:
+        tier_list = list(tier)
+        if len(tier_list) < 2:
+            continue
+        ties.update(task.uuid for task in tier_list)
+    return ties
 
 
 def colorize_in_progress(label: str) -> str:
@@ -1368,7 +1505,10 @@ def _build_ondeck_display_payload(
     task = candidate.task
     payload = dict(task.raw)
     payload["uuid"] = task.uuid
-    payload["id"] = task.id
+    if task.id is not None and task.annotations:
+        payload["id"] = f"{task.id}*"
+    else:
+        payload["id"] = task.id
     description = task.description.strip()
     marker = IN_PROGRESS_LABEL if task.start else ""
     if marker:
@@ -1481,6 +1621,27 @@ def format_ondeck_candidates(
     >>> "Score" in lines[0]
     True
     >>> lines[2].strip().startswith("1")
+    True
+    >>> task_with_note = ReviewTask(
+    ...     uuid="u2",
+    ...     id=2,
+    ...     description="Move B",
+    ...     project=None,
+    ...     depends=[],
+    ...     imp=1,
+    ...     urg=1,
+    ...     opt=1,
+    ...     annotations=["Note"],
+    ...     raw={
+    ...         "uuid": "u2",
+    ...         "id": 2,
+    ...         "description": "Move B",
+    ...         "annotations": [{"description": "Note"}],
+    ...     },
+    ... )
+    >>> noted = ScoredTask(task=task_with_note, score=3.21, components={})
+    >>> note_lines = format_ondeck_candidates([noted], columns=["id"], labels=["ID"])
+    >>> note_lines[2].strip().startswith("2*")
     True
     """
     if not candidates:
@@ -1974,7 +2135,7 @@ def run_ondeck(
     input_func: Callable[[str], str] = input,
 ) -> int:
     """
-    Execute the ondeck flow: fill missing metadata + recommend next moves.
+    Execute the ondeck flow: resolve dominance, fill tie metadata, and recommend moves.
 
     Parameters
     ----------
@@ -2009,99 +2170,27 @@ def run_ondeck(
         return 0
 
     ready = ready_tasks(pending)
-    dominance_state: Optional[DominanceState] = None
-    dominance_tiers: Optional[List[List[ReviewTask]]] = None
-    dominance_missing: set[str] = set()
-    criticality_missing: set[str] = {
-        task.uuid for task in pending if task.criticality is None
-    }
-    missing = collect_missing_metadata(
-        pending,
-        ready,
-        dominance_missing=set(),
+    dominance_state, dominance_tiers, dominance_missing = _build_dominance_context(
+        pending
     )
-    needs_wizard = bool(missing)
-
-    if not needs_wizard:
-        dominance_state, dominance_missing = _build_dominance_state_and_missing(
-            pending
-        )
-        if dominance_missing:
-            missing = collect_missing_metadata(
-                pending,
-                ready,
-                dominance_missing=dominance_missing,
-            )
-            needs_wizard = True
-
-    if needs_wizard:
-        print("\nMoves missing metadata or dominance ordering (ready moves first):")
-        shown = 0
-        for item in missing:
-            if shown >= limit:
-                break
-            print(format_missing_metadata_line(item))
-            shown += 1
 
     updated = False
     option_applied = False
-    if needs_wizard:
-        for item in missing:
-            if all(
-                field in {"dominance", "criticality"}
-                for field in item.missing
-            ):
-                continue
-            move = item.task
-            move_id = str(move.id) if move.id is not None else move.uuid[:8]
-            print("\n---")
-            print(f"Move [{move_id}] {move.description}")
-            try:
-                was_updated = interactive_fill_missing_incremental(
-                    move,
-                    input_func=input_func,
-                )
-            except RuntimeError as exc:
-                print(f"twh: ondeck failed: {exc}")
-                return 1
-            if was_updated:
-                updated = True
-                print("Updated.")
 
-    if needs_wizard and dominance_state is None:
-        dominance_state, dominance_missing = _build_dominance_state_and_missing(
-            pending
-        )
-
-    if criticality_missing:
-        from . import criticality as criticality_module
-
-        try:
-            criticality_module.ensure_criticality_uda()
-        except RuntimeError as exc:
-            print(f"twh: ondeck failed: {exc}")
-            return 1
-
-        state = criticality_module.build_criticality_state(pending)
-        tiers = criticality_module.sort_into_tiers(
+    if dominance_missing:
+        missing_dominance = collect_dominance_missing(
             pending,
-            state,
-            chooser=criticality_module.make_progress_chooser(
-                pending,
-                state,
-                input_func=input_func,
-            ),
+            ready,
+            dominance_missing,
         )
-        updates = criticality_module.build_criticality_updates(tiers)
-        try:
-            criticality_module.apply_criticality_updates(updates)
-        except RuntimeError as exc:
-            print(f"twh: ondeck failed: {exc}")
-            return 1
-        updated = True
-        print(f"Criticality updated for {len(pending)} moves.")
-
-    if needs_wizard and dominance_missing:
+        if missing_dominance:
+            print("\nMoves missing dominance ordering (ready moves first):")
+            shown = 0
+            for item in missing_dominance:
+                if shown >= limit:
+                    break
+                print(format_missing_metadata_line(item))
+                shown += 1
         from . import dominance as dominance_module
 
         try:
@@ -2127,7 +2216,7 @@ def run_ondeck(
             )
             dominance_updated = True
 
-        _ = dominance_module.sort_into_tiers(
+        dominance_tiers = dominance_module.sort_into_tiers(
             pending,
             dominance_state,
             chooser=dominance_module.make_progress_chooser(
@@ -2137,9 +2226,93 @@ def run_ondeck(
             ),
             on_update=on_update,
         )
+        dominance_missing = dominance_module.dominance_missing_uuids(
+            pending,
+            dominance_state,
+        )
         if dominance_updated:
             updated = True
             print(f"Dominance updated for {len(pending)} moves.")
+
+    tie_uuids = dominance_tie_uuids(dominance_tiers or [])
+    missing = collect_missing_metadata_for_uuids(
+        pending,
+        ready,
+        tie_uuids,
+        dominance_missing=dominance_missing,
+    )
+    if missing:
+        print("\nMoves missing metadata for dominance ties (ready moves first):")
+        shown = 0
+        for item in missing:
+            if shown >= limit:
+                break
+            print(format_missing_metadata_line(item))
+            shown += 1
+
+    if missing:
+        for item in missing:
+            if all(
+                field in {"dominance", "criticality"}
+                for field in item.missing
+            ):
+                continue
+            move = item.task
+            move_id = str(move.id) if move.id is not None else move.uuid[:8]
+            print("\n---")
+            print(f"Move [{move_id}] {move.description}")
+            try:
+                was_updated = interactive_fill_missing_incremental(
+                    move,
+                    input_func=input_func,
+                )
+            except RuntimeError as exc:
+                print(f"twh: ondeck failed: {exc}")
+                return 1
+            if was_updated:
+                updated = True
+                print("Updated.")
+
+    tie_tiers = [
+        list(tier)
+        for tier in (dominance_tiers or [])
+        if len(tier) > 1
+    ]
+    if tie_tiers and any(
+        task.criticality is None for tier in tie_tiers for task in tier
+    ):
+        from . import criticality as criticality_module
+
+        try:
+            criticality_module.ensure_criticality_uda()
+        except RuntimeError as exc:
+            print(f"twh: ondeck failed: {exc}")
+            return 1
+
+        updated_count = 0
+        for tier in tie_tiers:
+            if not any(task.criticality is None for task in tier):
+                continue
+            state = criticality_module.build_criticality_state(tier)
+            tiers = criticality_module.sort_into_tiers(
+                tier,
+                state,
+                chooser=criticality_module.make_progress_chooser(
+                    tier,
+                    state,
+                    input_func=input_func,
+                ),
+            )
+            updates = criticality_module.build_criticality_updates(tiers)
+            try:
+                criticality_module.apply_criticality_updates(updates)
+            except RuntimeError as exc:
+                print(f"twh: ondeck failed: {exc}")
+                return 1
+            updated_count += len(updates)
+        if updated_count:
+            updated = True
+            print(f"Criticality updated for {updated_count} tied moves.")
 
     if updated:
         from . import option_value as option_module

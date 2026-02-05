@@ -8,9 +8,10 @@ from __future__ import annotations
 import argparse
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
-from .taskwarrior import read_tasks_from_json
+from .taskwarrior import apply_taskrc_overrides, get_taskrc_path, read_tasks_from_json
 
 
 DIFF_PREFIX = "diff:"
@@ -128,7 +129,13 @@ def apply_restores(
         Runner for Taskwarrior commands.
     """
     if runner is None:
-        runner = subprocess.run
+        def task_runner(args, **kwargs):
+            if not args or args[0] != "task":
+                raise ValueError("Expected Taskwarrior args starting with 'task'.")
+            task_args = apply_taskrc_overrides(list(args[1:]))
+            return subprocess.run(["task", *task_args], **kwargs)
+
+        runner = task_runner
 
     for candidate in candidates:
         move_id = (
@@ -154,11 +161,19 @@ def apply_restores(
 
 def build_rc_overrides(taskrc: Optional[str], data_location: Optional[str]) -> List[str]:
     """
-    Build Taskwarrior rc overrides for taskrc or data location.
+    Build Taskwarrior rc overrides for the canonical taskrc and data location.
     """
     overrides: List[str] = []
+    canonical = get_taskrc_path()
     if taskrc:
-        overrides.append(f"rc:{taskrc}")
+        resolved = Path(taskrc).expanduser()
+        if canonical and resolved != canonical:
+            raise RuntimeError(
+                "twh enforces a single Taskwarrior config at ~/.taskrc. "
+                "Remove --taskrc or update it to point at ~/.taskrc."
+            )
+    if canonical:
+        overrides.append(f"rc:{canonical}")
     if data_location:
         overrides.append(f"rc.data.location:{data_location}")
     return overrides
@@ -178,8 +193,9 @@ def fetch_task_info(uuid: str, rc_overrides: Sequence[str]) -> str:
     str
         Taskwarrior info output.
     """
+    task_args = apply_taskrc_overrides(list(rc_overrides))
     result = subprocess.run(
-        ["task", *rc_overrides, uuid, "info"],
+        ["task", *task_args, uuid, "info"],
         capture_output=True,
         text=True,
         check=False,
@@ -188,7 +204,7 @@ def fetch_task_info(uuid: str, rc_overrides: Sequence[str]) -> str:
         stderr = (result.stderr or "").strip()
         hint = ""
         if "No Taskfile found" in stderr:
-            hint = " (set TASKRC/TASKDATA or pass --taskrc/--data)"
+            hint = " (ensure ~/.taskrc points at your Taskwarrior data or pass --data)"
         raise RuntimeError(
             (stderr or f"Taskwarrior info failed for {uuid}.") + hint
         )
@@ -209,8 +225,9 @@ def export_tasks(filters: Sequence[str], rc_overrides: Sequence[str]) -> List[Di
     List[Dict[str, Any]]
         Taskwarrior export payloads.
     """
+    task_args = apply_taskrc_overrides(list(rc_overrides))
     result = subprocess.run(
-        ["task", *rc_overrides, *filters, "export"],
+        ["task", *task_args, *filters, "export"],
         capture_output=True,
         text=True,
         check=False,
@@ -219,7 +236,7 @@ def export_tasks(filters: Sequence[str], rc_overrides: Sequence[str]) -> List[Di
         stderr = (result.stderr or "").strip()
         hint = ""
         if "No Taskfile found" in stderr:
-            hint = " (set TASKRC/TASKDATA or pass --taskrc/--data)"
+            hint = " (ensure ~/.taskrc points at your Taskwarrior data or pass --data)"
         raise RuntimeError((stderr or "Taskwarrior export failed.") + hint)
     return read_tasks_from_json(result.stdout or "")
 
@@ -242,7 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--taskrc",
-        help="Path to taskrc file (optional).",
+        help="Path to taskrc file (must be ~/.taskrc).",
     )
     parser.add_argument(
         "--data",

@@ -71,6 +71,8 @@ moves containing `task`, `Task`, or `TASK`.
 Commands that `twh` doesn't recognize are forwarded to Taskwarrior, so `twh`
 behaves like `task` for most subcommands and delegated commands replace the
 `twh` process with `task` to keep overhead low.
+twh always targets Taskwarrior 3 via the `task` binary and reads configuration
+from `~/.taskrc` (ignoring `TASKRC` overrides).
 `twh add` is interactive: it prompts for the move description, project, tags,
 due date, blocks, and ondeck metadata (imp/urg/opt_human/diff/mode), then runs
 the dominance sorting step. Use `task add` for non-interactive adds.
@@ -128,17 +130,18 @@ Each comparison is saved immediately to `~/.config/twh/criticality.json`
 (override with `TWH_CRITICALITY_PATH`) so interrupted sessions can be resumed.
 Once comparisons are complete, twh writes the numeric `criticality` values.
 
-`twh ondeck` scans pending moves for missing metadata
-(imp/urg/opt_human/diff/mode/criticality) and missing dominance ordering. If
-anything is missing, it walks you through the wizard to fill metadata
-(including blocked moves), collect time-criticality rankings, and collect
-dominance ordering, then recommends the next move by scoring ready moves. If
-metadata, criticality, and dominance are complete, it emits the report
+`twh ondeck` resolves dominance ordering for pending moves first, then only
+prompts for missing metadata (imp/urg/opt_human/diff/mode/criticality) when
+moves are tied within a dominance tier. In tie cases, it walks you through the
+metadata wizard (including blocked moves), collects time-criticality rankings
+for those tied moves, and then recommends the next move by scoring ready moves.
+If dominance ordering and tie metadata are complete, it emits the report
 directly. The top-move list is
 rendered in the same table layout and color scheme as the default Taskwarrior
 report, with the ID column placed first and the urgency column relabeled
 `Rank` to show the composite ordering (1 is the highest-ranked move). A
 separate `Score` column shows the underlying numeric score used in ranking.
+Moves with annotations show an asterisk immediately after the ID number.
 You can show more candidates by default (25; use `--top` to override). Started
 moves are labeled `[IN PROGRESS]` with a green highlight. Use `--mode editorial`
 (plus `--strict-mode` if desired) to bias recommendations to your current mode.
@@ -183,7 +186,7 @@ times are ranked ahead of later ones; when both are set, the later timestamp
 governs the ordering.
 Moves with a `start` time in the future are excluded from the ondeck report
 until that time arrives, but the wizard still prompts for missing metadata on
-all moves in scope.
+tied moves in scope.
 If a required UDA is missing, `twh ondeck`, `twh dominance`, and
 `twh criticality` will stop before writing updates to avoid modifying move
 descriptions.
@@ -305,5 +308,5 @@ python -m twh.restore_descriptions --apply
 
 Add Taskwarrior filter tokens to scope the restore (for example
 `python -m twh.restore_descriptions --apply project:work`).
-If Taskwarrior cannot find your data, add `--taskrc` or `--data` (or set
-`TASKRC` / `TASKDATA` in your environment).
+If Taskwarrior cannot find your data, ensure `~/.taskrc` points at the correct
+data location or pass `--data` to override `rc.data.location`.

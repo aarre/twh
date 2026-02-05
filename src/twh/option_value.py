@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set,
 
 from .taskwarrior import (
     apply_case_insensitive_overrides,
+    apply_taskrc_overrides,
     describe_missing_udas,
     filter_modified_zero_lines,
     missing_udas,
@@ -907,6 +908,7 @@ def run_task_command(
     if capture_output:
         kwargs.update({"capture_output": True, "text": True})
     task_args = apply_case_insensitive_overrides(list(args))
+    task_args = apply_taskrc_overrides(task_args)
     return subprocess.run(["task", *task_args], **kwargs)
 
 

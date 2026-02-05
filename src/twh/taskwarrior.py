@@ -44,6 +44,32 @@ def apply_case_insensitive_overrides(args: Sequence[str]) -> List[str]:
     return [CASE_INSENSITIVE_OVERRIDE, *cleaned]
 
 
+def apply_taskrc_overrides(args: Sequence[str]) -> List[str]:
+    """
+    Ensure Taskwarrior commands use the canonical taskrc path.
+
+    Parameters
+    ----------
+    args : Sequence[str]
+        Taskwarrior arguments excluding the executable.
+
+    Returns
+    -------
+    List[str]
+        Arguments with the canonical taskrc override applied.
+
+    Examples
+    --------
+    >>> apply_taskrc_overrides(["rc:/other", "list"])[0].startswith("rc:")
+    True
+    """
+    taskrc = get_taskrc_path()
+    cleaned = [arg for arg in args if not str(arg).startswith("rc:")]
+    if taskrc is None:
+        return cleaned
+    return [f"rc:{taskrc}", *cleaned]
+
+
 def parse_taskwarrior_json(text: str) -> List[Dict]:
     """
     Parse Taskwarrior JSON output that may be an array or line-delimited JSON.
@@ -74,6 +100,7 @@ def get_tasks_from_taskwarrior(status: Optional[str] = "pending") -> List[Dict]:
     """
     try:
         task_args = apply_case_insensitive_overrides(["export"])
+        task_args = apply_taskrc_overrides(task_args)
         result = subprocess.run(
             ["task", *task_args],
             capture_output=True,
@@ -173,8 +200,9 @@ def get_taskwarrior_setting(key: str) -> Optional[str]:
     """
     Fetch a Taskwarrior configuration value.
     """
+    task_args = apply_taskrc_overrides(["_get", key])
     result = subprocess.run(
-        ["task", "_get", key],
+        ["task", *task_args],
         capture_output=True,
         text=True,
         check=False,
@@ -215,11 +243,12 @@ def _parse_taskrc_setting(path: Path, key: str, visited: Optional[set[Path]] = N
 
 
 def get_taskrc_path() -> Optional[Path]:
-    taskrc = os.environ.get("TASKRC")
-    if taskrc:
-        return Path(os.path.expandvars(os.path.expanduser(taskrc)))
-    default = Path.home() / ".taskrc"
-    return default if default.exists() else None
+    """
+    Return the canonical Taskwarrior config path.
+
+    This ignores TASKRC environment overrides so twh always targets ~/.taskrc.
+    """
+    return Path.home() / ".taskrc"
 
 
 def taskrc_udas_present(
@@ -291,7 +320,7 @@ def describe_missing_udas(
 
 def missing_udas(
     fields: Iterable[str],
-    get_setting: Callable[[str], Optional[str]] = get_taskwarrior_setting,
+    get_setting: Optional[Callable[[str], Optional[str]]] = get_taskwarrior_setting,
     *,
     allow_taskrc_fallback: bool = True,
 ) -> List[str]:
@@ -302,12 +331,14 @@ def missing_udas(
     ----------
     fields : Iterable[str]
         UDA field names to check.
-    get_setting : Callable[[str], Optional[str]]
-        Getter for Taskwarrior settings.
+    get_setting : Optional[Callable[[str], Optional[str]]]
+        Getter for Taskwarrior settings (default: Taskwarrior config lookup).
     allow_taskrc_fallback : bool, optional
         When True, treat UDAs present in taskrc as available
         (default: True).
     """
+    if get_setting is None:
+        get_setting = get_taskwarrior_setting
     taskrc = get_taskrc_path() if allow_taskrc_fallback else None
     defined_udas: Optional[set[str]] = None
     missing: List[str] = []
@@ -383,7 +414,8 @@ def get_defined_udas(
     """
     if runner is None:
         def task_runner(args, **kwargs):
-            return subprocess.run(["task", *args], **kwargs)
+            task_args = apply_taskrc_overrides(list(args))
+            return subprocess.run(["task", *task_args], **kwargs)
 
         runner = task_runner
     result = runner(["udas"], capture_output=True, text=True, check=False)
@@ -432,7 +464,8 @@ def get_taskwarrior_columns(
     """
     if runner is None:
         def task_runner(args, **kwargs):
-            return subprocess.run(["task", *args], **kwargs)
+            task_args = apply_taskrc_overrides(list(args))
+            return subprocess.run(["task", *task_args], **kwargs)
 
         runner = task_runner
     result = runner(["_columns"], capture_output=True, text=True, check=False)
