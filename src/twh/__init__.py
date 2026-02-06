@@ -2880,8 +2880,9 @@ def get_twh_help_lines() -> List[str]:
     True
     """
     max_width = max(len(command) for command, _ in TWH_HELP_ENTRIES)
+    sorted_entries = sorted(TWH_HELP_ENTRIES, key=lambda entry: entry[0])
     lines = [TWH_HELP_HEADER]
-    for command, description in TWH_HELP_ENTRIES:
+    for command, description in sorted_entries:
         lines.append(f"  {command:<{max_width}}  {description}")
     lines.append(TWH_HELP_FOOTER)
     return lines

@@ -224,6 +224,26 @@ def test_help_command_includes_header_and_footer(help_output_lines):
     assert help_output_lines[-1] == "Use task help for Taskwarrior commands."
 
 
+@pytest.mark.unit
+def test_help_command_is_alphabetized(help_output_lines):
+    """
+    Ensure the help command list is sorted alphabetically.
+
+    Parameters
+    ----------
+    help_output_lines : list[str]
+        Lines produced by the help command.
+
+    Returns
+    -------
+    None
+        This test asserts on help output ordering.
+    """
+    command_lines = [line for line in help_output_lines[1:-1] if line.strip()]
+    commands = [line.strip().split()[0] for line in command_lines]
+    assert commands == sorted(commands)
+
+
 @pytest.mark.parametrize(
     "command",
     [
