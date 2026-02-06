@@ -2661,6 +2661,12 @@ def build_app():
             "--include-dominated",
             help="Include moves dominated by other moves.",
         ),
+        sort: Optional[str] = typer.Option(
+            None,
+            "--sort",
+            "-s",
+            help="Sort by a visible column (prefix with '-' to reverse).",
+        ),
     ):
         from . import review as review_module
 
@@ -2671,6 +2677,7 @@ def build_app():
                 top=top,
                 strict_mode=strict_mode,
                 include_dominated=include_dominated,
+                sort=sort,
                 filters=list(ctx.args),
             )
         except FileNotFoundError:
@@ -2898,6 +2905,7 @@ TWH_HELP_ENTRIES: Tuple[Tuple[str, str], ...] = (
 )
 TWH_COMMANDS: Set[str] = {command for command, _ in TWH_HELP_ENTRIES}
 TWH_HELP_ARGS = {"-h", "--help", "--install-completion", "--show-completion"}
+DEFER_COMMANDS = {"defer", "resurface"}
 
 
 def get_twh_help_lines() -> List[str]:
@@ -2924,6 +2932,35 @@ def get_twh_help_lines() -> List[str]:
         lines.append(f"  {command:<{max_width}}  {description}")
     lines.append(TWH_HELP_FOOTER)
     return lines
+
+
+def normalize_defer_command_args(argv: List[str]) -> List[str]:
+    """
+    Move defer/resurface tokens to the front of the argv list.
+
+    Parameters
+    ----------
+    argv : list[str]
+        Command-line arguments excluding the program name.
+
+    Returns
+    -------
+    list[str]
+        Normalized arguments with the command token first when present.
+
+    Examples
+    --------
+    >>> normalize_defer_command_args(["1", "resurface", "2d"])
+    ['resurface', '1', '2d']
+    >>> normalize_defer_command_args(["resurface", "1", "2d"])
+    ['resurface', '1', '2d']
+    """
+    for idx, token in enumerate(argv):
+        if token in DEFER_COMMANDS:
+            if idx == 0:
+                return argv
+            return [token, *argv[:idx], *argv[idx + 1 :]]
+    return argv
 
 
 def should_delegate_to_task(argv: List[str]) -> bool:
@@ -2959,6 +2996,8 @@ def should_delegate_to_task(argv: List[str]) -> bool:
         return True
     first_arg = argv[0]
     if first_arg == "add":
+        return False
+    if any(token in DEFER_COMMANDS for token in argv):
         return False
     return first_arg not in TWH_COMMANDS and first_arg not in TWH_HELP_ARGS
 
@@ -3002,6 +3041,7 @@ def main():
             print("Error: `task` command not found.", file=sys.stderr)
             sys.exit(1)
         sys.exit(exit_code)
+    argv = normalize_defer_command_args(argv)
     if should_delegate_to_task(argv):
         argv, message = apply_context_to_add_args(argv)
         if message:
@@ -3021,6 +3061,7 @@ def main():
             sys.exit(1)
         sys.exit(exit_code)
 
+    sys.argv = [sys.argv[0], *argv]
     app = build_app()
     app()
 

@@ -47,6 +47,7 @@ Already implemented, among other requirements:
 * Dominance missing/unknown pair checks use reachability maps to avoid slow ondeck/dominance runs on large move sets.
 * `twh ondeck` resolves dominance ordering before prompting for tie-breaking metadata, so metadata prompts only appear after dominance comparisons.
 * `twh ondeck` outputs its top-move list using the default Taskwarrior report columns/colors, but places the ID column first and relabels urgency to `Rank` for the composite ordering (1 is highest) while adding a numeric `Score` column; it defaults to showing 25 candidates.
+* `twh ondeck` accepts `--sort <column>` to reorder by any visible column, with `-` prefix reversing the natural order (for example `--sort due` vs `--sort=-due`); docs prefer the spaced form but both are supported.
 * `twh add` suppresses Taskwarrior modify/project completion noise after creating a move (dominance and blocks updates run quietly unless there are errors).
 * Taskwarrior project-completion summary lines are filtered from twh output when relaying command results.
 * `twh help` prints a brief, alphabetized reminder of twh-specific commands and points to `task help` for Taskwarrior commands.
@@ -75,7 +76,7 @@ Already implemented, among other requirements:
 * `twh ondeck` precedence scoring incorporates `enablement`, `blocker_relief`, `estimate_hours` (fallback to `diff`), and dependency centrality with a strategic/operational/explore mode multiplier.
 * `twh start`/`twh stop` mirror Taskwarrior start/stop while logging time records to `twh-time.db` inside Taskwarrior's data directory (`data.location` in `~/.taskrc`, defaulting to `~/.task`), enforcing a single active move by stopping other started moves, and supporting reports/editing via `twh time`.
 * `twh` enables readline-style line editing for interactive prompts (via `readline`/`pyreadline3`) so arrow keys and common editing keys work in terminals like Tabby on WSL.
-* `twh resurface` (alias: `twh defer`) delays moves by setting `start` to now plus an interval; with no args it targets the top ondeck move and prompts for a delay in `<number><m/h/d/w>` form with no spaces, and with args it requires a move selector plus the delay token, then annotates the affected moves.
+* `twh resurface` (alias: `twh defer`) delays moves by setting `start` to now plus an interval; with no args it targets the top ondeck move and prompts for a delay in `<number><m/h/d/w>` form with no spaces, and with args it expects `twh <selector> resurface <delay>` (or `twh <selector> defer <delay>`) and annotates the affected moves.
 
 ## Project notes
 

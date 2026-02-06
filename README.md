@@ -151,6 +151,13 @@ Moves with annotations show an asterisk immediately after the ID number.
 You can show more candidates by default (25; use `--top` to override). Started
 moves are labeled `[IN PROGRESS]` with a green highlight. Use `--mode editorial`
 (plus `--strict-mode` if desired) to bias recommendations to your current mode.
+You can also reorder the output with `--sort <column>` using any visible
+column name (for example `due`, `project`, `rank`, or `score`). Prefix the value
+with `-` to reverse the natural order, so `twh ondeck --sort due` lists the
+soonest due date first while `twh ondeck --sort=-due` lists the furthest due
+date first. The spaced form (`--sort due`) is shown in docs, but `--sort=due`
+works too; when the value itself starts with `-`, prefer `--sort=-due` or
+`--sort -- -due`.
 When the wizard prompts for a mode value, twh keeps a persistent list of known
 modes (stored in `~/.config/twh/modes.json`, override with `TWH_MODES_PATH`) and
 offers inline autocompletion; new modes are immediately added to the list,
@@ -206,8 +213,8 @@ current time plus the interval, and an annotation like
 accepts the same mode flags as ondeck (`--mode`, `--strict-mode`,
 `--include-dominated`).
 
-To delay specific moves, pass a move selector followed by the delay (for example
-`twh resurface 1-3 2d` or `twh defer project:work 3h`). The selector can be any
+To delay specific moves, place the selector before the command (for example
+`twh 1-3 resurface 2d` or `twh project:work defer 3h`). The selector can be any
 Taskwarrior filter or ID specification; quote it if it contains spaces.
 
 `twh diagnose` runs a short wizard when a move feels stuck. By default it targets

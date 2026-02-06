@@ -167,6 +167,8 @@ def test_apply_context_to_add_args(
         (["stop"], False),
         (["time"], False),
         (["resurface"], False),
+        (["1", "resurface", "2d"], False),
+        (["project:work", "defer", "3h"], False),
         (["--help"], False),
     ],
 )
@@ -243,6 +245,37 @@ def test_help_command_is_alphabetized(help_output_lines):
     command_lines = [line for line in help_output_lines[1:-1] if line.strip()]
     commands = [line.strip().split()[0] for line in command_lines]
     assert commands == sorted(commands)
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["resurface", "1", "2d"], ["resurface", "1", "2d"]),
+        (["1", "resurface", "2d"], ["resurface", "1", "2d"]),
+        (
+            ["project:work", "defer", "2h", "--mode", "analysis"],
+            ["defer", "project:work", "2h", "--mode", "analysis"],
+        ),
+    ],
+)
+@pytest.mark.unit
+def test_normalize_defer_command_args(argv, expected):
+    """
+    Ensure defer/resurface tokens are normalized to the front.
+
+    Parameters
+    ----------
+    argv : list[str]
+        Input argument list excluding program name.
+    expected : list[str]
+        Expected normalized argument list.
+
+    Returns
+    -------
+    None
+        This test asserts on the normalization behavior.
+    """
+    assert twh.normalize_defer_command_args(argv) == expected
 
 
 @pytest.mark.parametrize(
