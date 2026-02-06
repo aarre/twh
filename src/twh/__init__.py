@@ -2707,7 +2707,44 @@ def build_app():
                 mode=mode,
                 strict_mode=strict_mode,
                 include_dominated=include_dominated,
-                filters=list(ctx.args),
+                args=list(ctx.args),
+            )
+        except FileNotFoundError:
+            print("Error: `task` command not found.", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
+    @app.command(
+        "resurface",
+        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    )
+    def resurface_cmd(
+        ctx: typer.Context,
+        mode: Optional[str] = typer.Option(
+            None,
+            "--mode",
+            help="Current mode context (analysis/editorial/etc).",
+        ),
+        strict_mode: bool = typer.Option(
+            False,
+            "--strict-mode",
+            help="Only keep moves with matching modes.",
+        ),
+        include_dominated: bool = typer.Option(
+            True,
+            "--include-dominated",
+            help="Include moves dominated by other moves.",
+        ),
+    ):
+        from . import defer as defer_module
+
+        try:
+            exit_code = defer_module.run_resurface(
+                command_name="resurface",
+                mode=mode,
+                strict_mode=strict_mode,
+                include_dominated=include_dominated,
+                args=list(ctx.args),
             )
         except FileNotFoundError:
             print("Error: `task` command not found.", file=sys.stderr)
@@ -2847,10 +2884,11 @@ TWH_HELP_ENTRIES: Tuple[Tuple[str, str], ...] = (
     ("graph", "Graph view of move dependencies."),
     ("simple", "Taskwarrior report with annotation counts."),
     ("ondeck", "Rank moves and collect tie metadata."),
-    ("defer", "Defer the top move."),
+    ("defer", "Alias for resurface."),
     ("diagnose", "Stuck-move helper wizard."),
     ("dominance", "Pairwise dominance prompts for moves."),
     ("criticality", "Pairwise time-criticality prompts for moves."),
+    ("resurface", "Resurface moves by delaying their start time."),
     ("option", "Estimate opt_auto values."),
     ("calibrate", "Calibrate precedence/option weights."),
     ("start", "Start time tracking for a move."),

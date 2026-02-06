@@ -75,7 +75,7 @@ Already implemented, among other requirements:
 * `twh ondeck` precedence scoring incorporates `enablement`, `blocker_relief`, `estimate_hours` (fallback to `diff`), and dependency centrality with a strategic/operational/explore mode multiplier.
 * `twh start`/`twh stop` mirror Taskwarrior start/stop while logging time records to `~/.task/twh-time.db`, enforcing a single active move by stopping other started moves, and supporting reports/editing via `twh time`.
 * `twh` enables readline-style line editing for interactive prompts (via `readline`/`pyreadline3`) so arrow keys and common editing keys work in terminals like Tabby on WSL.
-* `twh defer` prints a summary of the top move from the ondeck ordering, prompts for a defer interval (number + m/h/d/w or minutes/hours/days/weeks), sets `start` to now plus the interval, and annotates the move with the deferral timestamps.
+* `twh resurface` (alias: `twh defer`) delays moves by setting `start` to now plus an interval; with no args it targets the top ondeck move and prompts for a delay in `<number><m/h/d/w>` form with no spaces, and with args it requires a move selector plus the delay token, then annotates the affected moves.
 
 ## Project notes
 

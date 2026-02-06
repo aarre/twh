@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-Defer the top move from the ondeck list by setting a future start time.
+Delay moves by setting a future start time.
+
+Used by the `twh defer` and `twh resurface` commands.
 """
 
 from __future__ import annotations
@@ -16,22 +18,14 @@ from .diagnose import format_move_snapshot, order_ondeck_moves
 from .review import ReviewTask, get_local_timezone, load_pending_tasks
 from .taskwarrior import filter_modified_zero_lines
 
-DEFER_PROMPT = "Defer for how long (m/h/d/w)? "
-DEFER_HINT = "Enter a number followed by m/h/d/w (or minutes/hours/days/weeks)."
+DEFER_PROMPT = "Delay for how long (m/h/d/w, no spaces)? "
+DEFER_HINT = "Enter a number followed by m/h/d/w with no spaces (e.g., 3d)."
 
 UNIT_ALIASES = {
     "m": "minute",
-    "minute": "minute",
-    "minutes": "minute",
     "h": "hour",
-    "hour": "hour",
-    "hours": "hour",
     "d": "day",
-    "day": "day",
-    "days": "day",
     "w": "week",
-    "week": "week",
-    "weeks": "week",
 }
 UNIT_FIELDS = {
     "minute": "minutes",
@@ -72,7 +66,7 @@ def parse_defer_interval(text: str) -> Tuple[int, str, timedelta]:
     Parameters
     ----------
     text : str
-        Raw input string (e.g., "15 m").
+        Raw input string (e.g., "15m"). Whitespace is not allowed.
 
     Returns
     -------
@@ -86,9 +80,9 @@ def parse_defer_interval(text: str) -> Tuple[int, str, timedelta]:
 
     Examples
     --------
-    >>> parse_defer_interval("15 m")
+    >>> parse_defer_interval("15m")
     (15, 'minute', datetime.timedelta(seconds=900))
-    >>> parse_defer_interval("2 hours")[1]
+    >>> parse_defer_interval("2h")[1]
     'hour'
     """
     if text is None:
@@ -96,7 +90,7 @@ def parse_defer_interval(text: str) -> Tuple[int, str, timedelta]:
     raw = text.strip().lower()
     if not raw:
         raise ValueError("Missing interval")
-    match = re.match(r"^(\d+)\s*([a-z]+)$", raw)
+    match = re.match(r"^(\d+)([a-z]+)$", raw)
     if not match:
         raise ValueError("Invalid interval")
     amount = int(match.group(1))
@@ -239,11 +233,63 @@ def _format_top_move_summary(move: ReviewTask) -> None:
         print(line)
 
 
-def run_defer(
+def _apply_start_and_annotation(
+    selector: Sequence[str],
+    start_value: str,
+    note: str,
+    task_runner: Callable[..., subprocess.CompletedProcess],
+) -> int:
+    """
+    Apply start time updates and annotations for the given selector.
+
+    Parameters
+    ----------
+    selector : Sequence[str]
+        Taskwarrior selector tokens.
+    start_value : str
+        Taskwarrior-compatible start timestamp.
+    note : str
+        Annotation text to attach.
+    task_runner : Callable[..., subprocess.CompletedProcess]
+        Runner for Taskwarrior commands.
+
+    Returns
+    -------
+    int
+        Exit code.
+    """
+    start_result = task_runner(
+        [*selector, "modify", f"start:{start_value}"],
+        capture_output=True,
+    )
+    for line in filter_modified_zero_lines(start_result.stdout):
+        print(line)
+    if start_result.stderr:
+        print(start_result.stderr, end="", file=sys.stderr)
+    if start_result.returncode != 0:
+        return start_result.returncode
+
+    annotate_result = task_runner(
+        [*selector, "annotate", note],
+        capture_output=True,
+    )
+    for line in filter_modified_zero_lines(annotate_result.stdout):
+        print(line)
+    if annotate_result.stderr:
+        print(annotate_result.stderr, end="", file=sys.stderr)
+    if annotate_result.returncode != 0:
+        return annotate_result.returncode
+
+    return 0
+
+
+def run_resurface(
     *,
+    command_name: str,
     mode: Optional[str],
     strict_mode: bool,
     include_dominated: bool,
+    args: Optional[Sequence[str]] = None,
     filters: Optional[Sequence[str]] = None,
     input_func: Callable[[str], str] = input,
     now: Optional[datetime] = None,
@@ -252,18 +298,22 @@ def run_defer(
     task_runner: Callable[..., subprocess.CompletedProcess] = run_task_command,
 ) -> int:
     """
-    Defer the top move on the ondeck list.
+    Delay moves by setting their start time in the future.
 
     Parameters
     ----------
+    command_name : str
+        Command label for error messages.
     mode : Optional[str]
         Current mode context.
     strict_mode : bool
         Require mode match when True.
     include_dominated : bool
         Include dominated moves when True.
+    args : Optional[Sequence[str]]
+        Optional move selector tokens followed by a delay token.
     filters : Optional[Sequence[str]]
-        Additional Taskwarrior filter tokens.
+        Additional Taskwarrior filter tokens for the top-move flow.
     input_func : Callable[[str], str], optional
         Input function for prompts (default: input).
     now : Optional[datetime], optional
@@ -280,10 +330,47 @@ def run_defer(
     int
         Exit code.
     """
+    arg_list = list(args) if args else []
+    if arg_list:
+        if len(arg_list) < 2:
+            print(
+                f"twh: {command_name} requires <move-spec> <delay>.",
+                file=sys.stderr,
+            )
+            print(DEFER_HINT, file=sys.stderr)
+            return 2
+        move_selector = arg_list[:-1]
+        delay_text = arg_list[-1]
+        try:
+            amount, unit, delta = parse_defer_interval(delay_text)
+        except ValueError:
+            print(
+                f"twh: {command_name} delay must be <number><unit> using m/h/d/w.",
+                file=sys.stderr,
+            )
+            print(DEFER_HINT, file=sys.stderr)
+            return 2
+
+        now_value = now or datetime.now().astimezone()
+        target = now_value + delta
+        start_value = format_task_start_timestamp(target)
+        note = format_defer_annotation(now_value, target, amount, unit)
+        exit_code = _apply_start_and_annotation(
+            move_selector,
+            start_value,
+            note,
+            task_runner,
+        )
+        if exit_code != 0:
+            return exit_code
+        selector_label = " ".join(move_selector)
+        print(f"Deferred moves {selector_label} to {format_defer_timestamp(target)}.")
+        return 0
+
     try:
         pending = pending_loader(filters=filters)
     except RuntimeError as exc:
-        print(f"twh: defer failed: {exc}", file=sys.stderr)
+        print(f"twh: {command_name} failed: {exc}", file=sys.stderr)
         return 1
 
     if not pending:
@@ -309,28 +396,74 @@ def run_defer(
 
     start_value = format_task_start_timestamp(target)
     note = format_defer_annotation(now_value, target, amount, unit)
-    start_result = task_runner(
-        [top_move.uuid, "modify", f"start:{start_value}"],
-        capture_output=True,
+    exit_code = _apply_start_and_annotation(
+        [top_move.uuid],
+        start_value,
+        note,
+        task_runner,
     )
-    for line in filter_modified_zero_lines(start_result.stdout):
-        print(line)
-    if start_result.stderr:
-        print(start_result.stderr, end="", file=sys.stderr)
-    if start_result.returncode != 0:
-        return start_result.returncode
-
-    annotate_result = task_runner(
-        [top_move.uuid, "annotate", note],
-        capture_output=True,
-    )
-    for line in filter_modified_zero_lines(annotate_result.stdout):
-        print(line)
-    if annotate_result.stderr:
-        print(annotate_result.stderr, end="", file=sys.stderr)
-    if annotate_result.returncode != 0:
-        return annotate_result.returncode
+    if exit_code != 0:
+        return exit_code
 
     move_id = str(top_move.id) if top_move.id is not None else top_move.uuid[:8]
     print(f"Deferred move {move_id} to {format_defer_timestamp(target)}.")
     return 0
+
+
+def run_defer(
+    *,
+    mode: Optional[str],
+    strict_mode: bool,
+    include_dominated: bool,
+    args: Optional[Sequence[str]] = None,
+    filters: Optional[Sequence[str]] = None,
+    input_func: Callable[[str], str] = input,
+    now: Optional[datetime] = None,
+    pending_loader: Callable[..., list[ReviewTask]] = load_pending_tasks,
+    orderer: Callable[..., list[ReviewTask]] = order_ondeck_moves,
+    task_runner: Callable[..., subprocess.CompletedProcess] = run_task_command,
+) -> int:
+    """
+    Compatibility wrapper for the defer command.
+
+    Parameters
+    ----------
+    mode : Optional[str]
+        Current mode context.
+    strict_mode : bool
+        Require mode match when True.
+    include_dominated : bool
+        Include dominated moves when True.
+    args : Optional[Sequence[str]]
+        Optional move selector tokens followed by a delay token.
+    filters : Optional[Sequence[str]]
+        Additional Taskwarrior filter tokens for the top-move flow.
+    input_func : Callable[[str], str], optional
+        Input function for prompts (default: input).
+    now : Optional[datetime], optional
+        Override for the current time (default: now in local timezone).
+    pending_loader : Callable[..., list[ReviewTask]], optional
+        Loader for pending moves (default: review.load_pending_tasks).
+    orderer : Callable[..., list[ReviewTask]], optional
+        Ordering function for ondeck moves (default: diagnose.order_ondeck_moves).
+    task_runner : Callable[..., subprocess.CompletedProcess], optional
+        Taskwarrior runner (default: run_task_command).
+
+    Returns
+    -------
+    int
+        Exit code.
+    """
+    return run_resurface(
+        command_name="defer",
+        mode=mode,
+        strict_mode=strict_mode,
+        include_dominated=include_dominated,
+        args=args,
+        filters=filters,
+        input_func=input_func,
+        now=now,
+        pending_loader=pending_loader,
+        orderer=orderer,
+        task_runner=task_runner,
+    )

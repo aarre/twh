@@ -166,6 +166,7 @@ def test_apply_context_to_add_args(
         (["start"], False),
         (["stop"], False),
         (["time"], False),
+        (["resurface"], False),
         (["--help"], False),
     ],
 )
@@ -255,6 +256,7 @@ def test_help_command_is_alphabetized(help_output_lines):
         "simple",
         "ondeck",
         "defer",
+        "resurface",
         "diagnose",
         "dominance",
         "criticality",

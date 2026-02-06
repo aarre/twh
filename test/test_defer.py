@@ -22,11 +22,11 @@ from twh.review import ReviewTask
 @pytest.mark.parametrize(
     "raw, amount, unit, delta",
     [
-        ("15 m", 15, "minute", timedelta(minutes=15)),
-        ("2 hours", 2, "hour", timedelta(hours=2)),
-        ("1 day", 1, "day", timedelta(days=1)),
-        ("3 weeks", 3, "week", timedelta(weeks=3)),
-        ("5h", 5, "hour", timedelta(hours=5)),
+        ("15m", 15, "minute", timedelta(minutes=15)),
+        ("2h", 2, "hour", timedelta(hours=2)),
+        ("1d", 1, "day", timedelta(days=1)),
+        ("3w", 3, "week", timedelta(weeks=3)),
+        ("5H", 5, "hour", timedelta(hours=5)),
     ],
 )
 def test_parse_defer_interval_valid(raw, amount, unit, delta):
@@ -40,7 +40,18 @@ def test_parse_defer_interval_valid(raw, amount, unit, delta):
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "raw",
-    ["", "15", "0 m", "m", "15 months", "-2 h"],
+    [
+        "",
+        "15",
+        "0m",
+        "m",
+        "15 m",
+        "10 h",
+        "2 hours",
+        "1 day",
+        "3 weeks",
+        "-2h",
+    ],
 )
 def test_parse_defer_interval_invalid(raw):
     """Reject malformed defer interval inputs."""
@@ -84,7 +95,7 @@ def test_format_task_start_timestamp():
 @pytest.mark.unit
 def test_prompt_defer_interval_retries_until_valid(capsys):
     """Prompt for defer intervals until a valid value is provided."""
-    responses = iter(["nope", "10 m"])
+    responses = iter(["10 m", "10m"])
 
     def fake_input(prompt):
         return next(responses)
@@ -123,7 +134,7 @@ def test_run_defer_updates_start_and_annotation(capsys):
         recorded.append(args)
         return subprocess.CompletedProcess(args, 0, stdout="Modified 1 task.\n", stderr="")
 
-    responses = iter(["15 m"])
+    responses = iter(["15m"])
 
     def fake_input(prompt):
         return next(responses)
@@ -132,7 +143,7 @@ def test_run_defer_updates_start_and_annotation(capsys):
         mode=None,
         strict_mode=False,
         include_dominated=True,
-        filters=None,
+        args=None,
         input_func=fake_input,
         now=now,
         pending_loader=fake_loader,
@@ -155,3 +166,49 @@ def test_run_defer_updates_start_and_annotation(capsys):
     ]
     captured = capsys.readouterr()
     assert "Top move" in captured.out
+
+
+@pytest.mark.unit
+def test_run_defer_with_selection_updates_start_and_annotation(capsys):
+    """Defer explicit move selections without prompting."""
+    now = datetime(2026, 2, 2, 18, 45)
+    recorded = []
+
+    def fake_loader(filters=None):
+        raise AssertionError("pending_loader should not be called")
+
+    def fake_orderer(pending, current_mode, strict_mode, include_dominated):
+        raise AssertionError("orderer should not be called")
+
+    def fake_runner(args, capture_output=False, stdin=None):
+        recorded.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout="Modified 2 tasks.\n", stderr="")
+
+    exit_code = run_defer(
+        mode=None,
+        strict_mode=False,
+        include_dominated=True,
+        args=["1,3", "2h"],
+        input_func=lambda prompt: "10m",
+        now=now,
+        pending_loader=fake_loader,
+        orderer=fake_orderer,
+        task_runner=fake_runner,
+    )
+
+    assert exit_code == 0
+    assert recorded == [
+        [
+            "1,3",
+            "modify",
+            "start:2026-02-02T20:45:00",
+        ],
+        [
+            "1,3",
+            "annotate",
+            "2026-02-02 18:45 -- Deferred for 2 hours to 2026-02-02 20:45.",
+        ],
+    ]
+    captured = capsys.readouterr()
+    assert "Deferred moves 1,3 to 2026-02-02 20:45." in captured.out
+    assert "Top move" not in captured.out
