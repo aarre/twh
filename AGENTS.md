@@ -60,6 +60,7 @@ Already implemented, among other requirements:
 * README now includes WSL-friendly installation and reinstall steps (venv + pipx) for dependencies like prompt_toolkit.
 * README now includes uv-based environment/dependency setup and reinstall steps.
 * `twh ondeck` marks WIP moves as in progress in its output, using a green highlight for visibility; WIP is tracked via a `wip` UDA set by `twh start` and cleared by `twh stop`.
+* Taskwarrior can return non-zero with "already started"/"not started" messages; `twh start/stop` should still update `wip` in those cases.
 * `twh ondeck` appends `*` to move IDs in the report when the move has annotations.
 * `twh` always uses Taskwarrior 3 via the `task` binary and the canonical `~/.taskrc`, ignoring `TASKRC` or `rc:` overrides.
 * Do not delete Chezmoi-managed files.

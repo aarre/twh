@@ -931,6 +931,61 @@ def _apply_wip_update(
     return task_runner([uuid, "modify", f"{WIP_UDA_NAME}:{value}"], capture_output=True)
 
 
+def _result_text(result: subprocess.CompletedProcess) -> str:
+    """
+    Normalize task command output for message checks.
+
+    Parameters
+    ----------
+    result : subprocess.CompletedProcess
+        Task command result.
+
+    Returns
+    -------
+    str
+        Lowercased stdout/stderr text.
+    """
+    stdout = getattr(result, "stdout", "") or ""
+    stderr = getattr(result, "stderr", "") or ""
+    return f"{stdout}\n{stderr}".strip().lower()
+
+
+def _is_task_already_started(result: subprocess.CompletedProcess) -> bool:
+    """
+    Detect Taskwarrior "already started" responses.
+
+    Parameters
+    ----------
+    result : subprocess.CompletedProcess
+        Task command result.
+
+    Returns
+    -------
+    bool
+        True when the output indicates the move was already started.
+    """
+    text = _result_text(result)
+    return "already started" in text or "already active" in text
+
+
+def _is_task_not_started(result: subprocess.CompletedProcess) -> bool:
+    """
+    Detect Taskwarrior "not started" responses.
+
+    Parameters
+    ----------
+    result : subprocess.CompletedProcess
+        Task command result.
+
+    Returns
+    -------
+    bool
+        True when the output indicates the move was not started.
+    """
+    text = _result_text(result)
+    return "not started" in text or "not active" in text
+
+
 def run_start(filters: Sequence[str]) -> int:
     """
     Start a move and log time.
@@ -980,7 +1035,7 @@ def run_start(filters: Sequence[str]) -> int:
     if not target_active:
         result = run_task_command([target.uuid, "start"], capture_output=True)
         _print_taskwarrior_output(result)
-        if result.returncode != 0:
+        if result.returncode != 0 and not _is_task_already_started(result):
             return result.returncode
     wip_result = _apply_wip_update(target.uuid, True, run_task_command)
     _print_taskwarrior_output(wip_result)
@@ -1019,7 +1074,7 @@ def run_stop(filters: Sequence[str]) -> int:
     for task in active:
         result = run_task_command([task.uuid, "stop"], capture_output=True)
         _print_taskwarrior_output(result)
-        if result.returncode != 0:
+        if result.returncode != 0 and not _is_task_not_started(result):
             return result.returncode
     for task in active:
         wip_result = _apply_wip_update(task.uuid, False, run_task_command)

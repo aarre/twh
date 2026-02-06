@@ -298,6 +298,63 @@ def test_load_active_snapshots_filters_wip(monkeypatch):
 
 
 @pytest.mark.unit
+def test_run_start_handles_already_started(monkeypatch):
+    """
+    Ensure already-started moves still get wip set.
+
+    Returns
+    -------
+    None
+        This test asserts start output handling.
+    """
+    target = time_log.TaskSnapshot(
+        uuid="u1",
+        description="Target",
+        project=None,
+        tags=(),
+        mode=None,
+        start=datetime(2024, 1, 5, 9, 0, 0, tzinfo=timezone.utc),
+        wip=False,
+    )
+
+    monkeypatch.setattr(time_log, "load_task_snapshots", lambda _filters=None: [target])
+    monkeypatch.setattr(time_log, "load_active_snapshots", lambda: [])
+    monkeypatch.setattr(time_log, "ensure_wip_uda_present", lambda _cmd: True)
+
+    calls = []
+
+    def fake_run(args, capture_output=False):
+        calls.append(args)
+        if args == ["u1", "start"]:
+            return time_log.subprocess.CompletedProcess(
+                args,
+                1,
+                stdout="Task u1 already started.",
+                stderr="",
+            )
+        return time_log.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(time_log, "run_task_command", fake_run)
+
+    class FakeStore:
+        def fetch_entries(self):
+            return []
+
+        def close_open_entries(self, *_args, **_kwargs):
+            return 0
+
+        def add_entry(self, *_args, **_kwargs):
+            return 1
+
+    monkeypatch.setattr(time_log, "TimeLogStore", lambda *_args, **_kwargs: FakeStore())
+
+    exit_code = time_log.run_start([])
+
+    assert exit_code == 0
+    assert calls == [["u1", "start"], ["u1", "modify", "wip:1"]]
+
+
+@pytest.mark.unit
 def test_run_stop_closes_active_and_logs(monkeypatch):
     """
     Ensure stop closes active entries and logs missing ones.
@@ -353,6 +410,67 @@ def test_run_stop_closes_active_and_logs(monkeypatch):
     assert exit_code == 0
     assert calls == [["u1", "stop"], ["u1", "modify", "wip:"]]
     assert {entry[0] for entry in store.added} == {"u1"}
+
+
+@pytest.mark.unit
+def test_run_stop_handles_not_started(monkeypatch):
+    """
+    Ensure not-started moves still clear wip.
+
+    Returns
+    -------
+    None
+        This test asserts stop output handling.
+    """
+    active = time_log.TaskSnapshot(
+        uuid="u1",
+        description="Active",
+        project=None,
+        tags=(),
+        mode=None,
+        start=None,
+        wip=True,
+    )
+
+    monkeypatch.setattr(time_log, "load_active_snapshots", lambda: [active])
+    monkeypatch.setattr(time_log, "load_task_snapshots", lambda _filters=None: [])
+    monkeypatch.setattr(time_log, "ensure_wip_uda_present", lambda _cmd: True)
+
+    calls = []
+
+    def fake_run(args, capture_output=False):
+        calls.append(args)
+        if args == ["u1", "stop"]:
+            return time_log.subprocess.CompletedProcess(
+                args,
+                1,
+                stdout="Task u1 not started.",
+                stderr="",
+            )
+        return time_log.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(time_log, "run_task_command", fake_run)
+
+    class FakeStore:
+        def __init__(self):
+            self.closed = []
+
+        def fetch_entries(self):
+            return []
+
+        def close_open_entries(self, *_args, **_kwargs):
+            self.closed.append(True)
+            return 0
+
+        def add_entry(self, *_args, **_kwargs):
+            return 1
+
+    monkeypatch.setattr(time_log, "TimeLogStore", lambda *_args, **_kwargs: FakeStore())
+
+    exit_code = time_log.run_stop([])
+
+    assert exit_code == 0
+    assert calls == [["u1", "stop"], ["u1", "modify", "wip:"]]
 
 
 @pytest.mark.unit
