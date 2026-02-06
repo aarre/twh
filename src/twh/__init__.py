@@ -1740,8 +1740,34 @@ def format_task_field(task: Dict, column: str, uuid_to_id: Dict[str, Optional[in
     return str(value)
 
 
+def _parse_task_boolean(value: Optional[object]) -> bool:
+    """
+    Parse Taskwarrior boolean-ish values into a bool.
+
+    Parameters
+    ----------
+    value : Optional[object]
+        Raw Taskwarrior value.
+
+    Returns
+    -------
+    bool
+        Parsed boolean.
+    """
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value).strip().lower()
+    if text in {"", "0", "0.0", "false", "no", "off", "none", "null"}:
+        return False
+    return True
+
+
 def apply_task_color(line: str, task: Dict) -> str:
-    if task.get("start"):
+    if _parse_task_boolean(task.get("wip")):
         return f"\x1b[42m{line}\x1b[0m"
     priority = task.get("priority", "")
     if priority == "H":

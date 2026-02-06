@@ -100,6 +100,8 @@ write time logs to `twh-time.db` inside Taskwarrior's data directory
 (`data.location` in `~/.taskrc`, defaulting to `~/.task`). Starting a move stops any other
 started moves first, so only one move can be active at a time. Each log entry
 stores the move UUID, description, project, tags, mode, and start/end times.
+`twh start` also sets a `wip` UDA and `twh stop` clears it; twh uses `wip` to
+flag in-progress moves independently of Taskwarrior's `start` timestamp.
 Use `twh time` for reports, `twh time entries` to list raw entries, and
 `twh time edit <id>` to adjust start/end/durations after the fact. Reports can
 group by task/project/tag/mode/total and by day/week/month/year/range, with
@@ -148,7 +150,7 @@ report, with the ID column placed first and the urgency column relabeled
 `Rank` to show the composite ordering (1 is the highest-ranked move). A
 separate `Score` column shows the underlying numeric score used in ranking.
 Moves with annotations show an asterisk immediately after the ID number.
-You can show more candidates by default (25; use `--top` to override). Started
+You can show more candidates by default (25; use `--top` to override). WIP
 moves are labeled `[IN PROGRESS]` with a green highlight. Use `--mode editorial`
 (plus `--strict-mode` if desired) to bias recommendations to your current mode.
 You can also reorder the output with `--sort <column>` using any visible
@@ -282,6 +284,10 @@ uda.opt_human.label=OptHuman
 uda.opt_auto.type=numeric
 uda.opt_auto.label=OptAuto
 
+# Work-in-progress flag (set by twh start/stop)
+uda.wip.type=numeric
+uda.wip.label=WIP
+
 # Optional option value fields
 uda.door.type=string
 uda.door.label=Door
@@ -309,7 +315,7 @@ Windows Edge by default, copying the file into the Windows TEMP directory when
 needed. Node labels include an
 urgency bar with rank-based colors plus a status panel that lists ID,
 description (wrapped in fixed-width boxes), due date, and status coloring
-(started/blocked/normal). It falls
+(wip/blocked/normal). It falls
 back to an ASCII tree when Graphviz is unavailable or when `--ascii` is set.
 Use `--png` or `--svg` to customize output paths, `--rankdir` to change layout
 direction, and `--edges` to print the raw edge list.

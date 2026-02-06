@@ -106,6 +106,8 @@ class ReviewTask:
         Wait-until datetime for the move.
     start : Optional[datetime]
         Start datetime for in-progress moves.
+    wip : bool
+        Explicit work-in-progress flag.
     dominates : List[str]
         UUIDs explicitly dominated by this move.
     dominated_by : List[str]
@@ -134,6 +136,7 @@ class ReviewTask:
     scheduled: Optional[datetime] = None
     wait: Optional[datetime] = None
     start: Optional[datetime] = None
+    wip: bool = False
     dominates: List[str] = field(default_factory=list)
     dominated_by: List[str] = field(default_factory=list)
     annotations: List[str] = field(default_factory=list)
@@ -186,6 +189,19 @@ class ReviewTask:
             normalized = str(value).strip()
             return normalized if normalized else None
 
+        def parse_bool(key: str) -> bool:
+            value = payload.get(key)
+            if value is None:
+                return False
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return value != 0
+            text = str(value).strip().lower()
+            if text in {"", "0", "0.0", "false", "no", "off", "none", "null"}:
+                return False
+            return True
+
         return ReviewTask(
             uuid=str(payload["uuid"]),
             id=payload.get("id"),
@@ -206,6 +222,7 @@ class ReviewTask:
             scheduled=parse_task_timestamp(payload.get("scheduled")),
             wait=parse_task_timestamp(payload.get("wait")),
             start=parse_task_timestamp(payload.get("start")),
+            wip=parse_bool("wip"),
             dominates=parse_uuid_list(payload.get("dominates")),
             dominated_by=parse_uuid_list(payload.get("dominated_by")),
             annotations=parse_annotations(payload.get("annotations")),
@@ -976,7 +993,7 @@ def colorize_in_progress(label: str) -> str:
 
 def started_marker(task: ReviewTask) -> str:
     """
-    Return an in-progress marker for started moves.
+    Return an in-progress marker for WIP moves.
 
     Parameters
     ----------
@@ -999,14 +1016,14 @@ def started_marker(task: ReviewTask) -> str:
     ...     1,
     ...     1,
     ...     1,
-    ...     start=datetime(2024, 1, 1, 9, 0, 0),
+    ...     wip=True,
     ... )
     >>> started_marker(task)
     ' \\x1b[42m[IN PROGRESS]\\x1b[0m'
     >>> started_marker(ReviewTask("u2", 2, "Move", None, [], 1, 1, 1))
     ''
     """
-    if not task.start:
+    if not task.wip:
         return ""
     return f" {colorize_in_progress(IN_PROGRESS_LABEL)}"
 
@@ -1036,7 +1053,7 @@ def format_missing_metadata_line(item: MissingMetadata) -> str:
     ...     1,
     ...     1,
     ...     1,
-    ...     start=datetime(2024, 1, 1, 9, 0, 0),
+    ...     wip=True,
     ... )
     >>> item = MissingMetadata(task=task, missing=("imp", "mode"), is_ready=True)
     >>> format_missing_metadata_line(item)
@@ -1502,17 +1519,18 @@ def _build_ondeck_display_payload(
     -------
     Dict[str, Any]
         Payload with the ondeck score stored under ``urgency`` and
-        description updated to include an in-progress marker when started.
+        description updated to include an in-progress marker when WIP.
     """
     task = candidate.task
     payload = dict(task.raw)
     payload["uuid"] = task.uuid
+    payload["wip"] = task.wip
     if task.id is not None and task.annotations:
         payload["id"] = f"{task.id}*"
     else:
         payload["id"] = task.id
     description = task.description.strip()
-    marker = IN_PROGRESS_LABEL if task.start else ""
+    marker = IN_PROGRESS_LABEL if task.wip else ""
     if marker:
         description = f"{marker} {description}" if description else marker
     payload["description"] = description

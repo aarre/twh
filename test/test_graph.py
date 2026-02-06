@@ -232,7 +232,7 @@ def test_generate_dot_includes_graph_metadata_and_colors():
             "uuid": "c",
             "id": 3,
             "description": "Task C",
-            "start": "20250121T120000Z",
+            "wip": "1",
         },
     }
     dot_source = graph.generate_dot(by_uuid, [("b", "a")], rankdir="LR")

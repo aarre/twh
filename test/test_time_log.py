@@ -209,6 +209,7 @@ def test_run_start_stops_other_active_and_logs(monkeypatch):
         tags=(),
         mode=None,
         start=None,
+        wip=False,
     )
     other = time_log.TaskSnapshot(
         uuid="u2",
@@ -217,10 +218,12 @@ def test_run_start_stops_other_active_and_logs(monkeypatch):
         tags=(),
         mode=None,
         start=datetime(2024, 1, 5, 9, 0, 0, tzinfo=timezone.utc),
+        wip=True,
     )
 
     monkeypatch.setattr(time_log, "load_task_snapshots", lambda _filters=None: [target])
     monkeypatch.setattr(time_log, "load_active_snapshots", lambda: [other])
+    monkeypatch.setattr(time_log, "ensure_wip_uda_present", lambda _cmd: True)
 
     calls = []
 
@@ -250,9 +253,48 @@ def test_run_start_stops_other_active_and_logs(monkeypatch):
     exit_code = time_log.run_start([])
 
     assert exit_code == 0
-    assert calls[0] == ["u2", "stop"]
-    assert calls[1] == ["u1", "start"]
+    assert calls == [
+        ["u2", "stop"],
+        ["u2", "modify", "wip:"],
+        ["u1", "start"],
+        ["u1", "modify", "wip:1"],
+    ]
     assert {entry[0] for entry in store.added} == {"u1", "u2"}
+
+
+@pytest.mark.unit
+def test_load_active_snapshots_filters_wip(monkeypatch):
+    """
+    Ensure active snapshots are determined by wip status.
+
+    Returns
+    -------
+    None
+        This test asserts wip-based filtering.
+    """
+    active = time_log.TaskSnapshot(
+        uuid="u1",
+        description="Active",
+        project=None,
+        tags=(),
+        mode=None,
+        start=None,
+        wip=True,
+    )
+    inactive = time_log.TaskSnapshot(
+        uuid="u2",
+        description="Inactive",
+        project=None,
+        tags=(),
+        mode=None,
+        start=None,
+        wip=False,
+    )
+    monkeypatch.setattr(time_log, "load_task_snapshots", lambda _filters=None: [active, inactive])
+
+    snapshots = time_log.load_active_snapshots()
+
+    assert [snapshot.uuid for snapshot in snapshots] == ["u1"]
 
 
 @pytest.mark.unit
@@ -272,10 +314,12 @@ def test_run_stop_closes_active_and_logs(monkeypatch):
         tags=(),
         mode=None,
         start=datetime(2024, 1, 6, 9, 0, 0, tzinfo=timezone.utc),
+        wip=True,
     )
 
     monkeypatch.setattr(time_log, "load_active_snapshots", lambda: [active])
     monkeypatch.setattr(time_log, "load_task_snapshots", lambda _filters=None: [])
+    monkeypatch.setattr(time_log, "ensure_wip_uda_present", lambda _cmd: True)
 
     calls = []
 
@@ -307,7 +351,7 @@ def test_run_stop_closes_active_and_logs(monkeypatch):
     exit_code = time_log.run_stop([])
 
     assert exit_code == 0
-    assert calls == [["u1", "stop"]]
+    assert calls == [["u1", "stop"], ["u1", "modify", "wip:"]]
     assert {entry[0] for entry in store.added} == {"u1"}
 
 

@@ -11,15 +11,21 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .taskwarrior import (
     apply_case_insensitive_overrides,
     apply_taskrc_overrides,
+    missing_udas,
     filter_modified_zero_lines,
     get_task_data_location,
     read_tasks_from_json,
 )
+
+WIP_UDA_NAME = "wip"
+WIP_UDA_TYPE = "numeric"
+WIP_UDA_LABEL = "WIP"
+WIP_ACTIVE_VALUE = "1"
 
 
 @dataclass(frozen=True)
@@ -41,6 +47,8 @@ class TaskSnapshot:
         Mode associated with the move.
     start : Optional[datetime]
         Taskwarrior start timestamp.
+    wip : bool
+        Explicit work-in-progress flag.
     """
 
     uuid: str
@@ -49,6 +57,7 @@ class TaskSnapshot:
     tags: Tuple[str, ...]
     mode: Optional[str]
     start: Optional[datetime] = None
+    wip: bool = False
 
 
 @dataclass(frozen=True)
@@ -121,6 +130,32 @@ def get_local_timezone() -> tzinfo:
     """
     tzinfo = datetime.now().astimezone().tzinfo
     return tzinfo if tzinfo is not None else timezone.utc
+
+
+def parse_task_boolean(value: Optional[object]) -> bool:
+    """
+    Parse Taskwarrior boolean-ish values into a bool.
+
+    Parameters
+    ----------
+    value : Optional[object]
+        Raw Taskwarrior value.
+
+    Returns
+    -------
+    bool
+        Parsed boolean.
+    """
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value).strip().lower()
+    if text in {"", "0", "0.0", "false", "no", "off", "none", "null"}:
+        return False
+    return True
 
 
 def parse_task_timestamp(value: Optional[str]) -> Optional[datetime]:
@@ -597,6 +632,7 @@ def snapshot_from_payload(payload: Dict[str, Any]) -> TaskSnapshot:
         tags=tags,
         mode=_normalize_text(payload.get("mode")) or None,
         start=parse_task_timestamp(payload.get("start")),
+        wip=parse_task_boolean(payload.get("wip")),
     )
 
 
@@ -635,7 +671,7 @@ def load_active_snapshots() -> List[TaskSnapshot]:
     Load active task snapshots.
     """
     snapshots = load_task_snapshots()
-    return [snapshot for snapshot in snapshots if snapshot.start is not None]
+    return [snapshot for snapshot in snapshots if snapshot.wip]
 
 
 def _task_label(entry: TimeEntry) -> str:
@@ -823,10 +859,84 @@ def _print_taskwarrior_output(result: subprocess.CompletedProcess) -> None:
         print(result.stderr, end="", file=sys.stderr)
 
 
+def format_missing_wip_instructions(command_name: str) -> str:
+    """
+    Build guidance text for missing wip UDA configuration.
+
+    Parameters
+    ----------
+    command_name : str
+        Command name to reference in guidance text.
+
+    Returns
+    -------
+    str
+        Instructional message for ~/.taskrc edits.
+    """
+    lines = [
+        "Missing Taskwarrior UDA(s): wip.",
+        f"Add the following to your active Taskwarrior config and re-run twh {command_name}:",
+        f"twh {command_name} will not write wip values until these UDAs exist to avoid modifying move descriptions.",
+        f"uda.{WIP_UDA_NAME}.type={WIP_UDA_TYPE}",
+        f"uda.{WIP_UDA_NAME}.label={WIP_UDA_LABEL}",
+    ]
+    return "\n".join(lines)
+
+
+def ensure_wip_uda_present(command_name: str) -> bool:
+    """
+    Verify the wip UDA exists before writing values.
+
+    Parameters
+    ----------
+    command_name : str
+        Command name to reference in guidance text.
+
+    Returns
+    -------
+    bool
+        True when the wip UDA is available.
+    """
+    missing = missing_udas([WIP_UDA_NAME], allow_taskrc_fallback=False)
+    if not missing:
+        return True
+    message = format_missing_wip_instructions(command_name)
+    print(f"twh: {command_name} stopped.\n{message}", file=sys.stderr)
+    return False
+
+
+def _apply_wip_update(
+    uuid: str,
+    enabled: bool,
+    task_runner: Callable[..., subprocess.CompletedProcess],
+) -> subprocess.CompletedProcess:
+    """
+    Apply a wip update to a move.
+
+    Parameters
+    ----------
+    uuid : str
+        Move UUID.
+    enabled : bool
+        True to set wip, False to clear it.
+    task_runner : Callable[..., subprocess.CompletedProcess]
+        Runner for Taskwarrior commands.
+
+    Returns
+    -------
+    subprocess.CompletedProcess
+        Taskwarrior result.
+    """
+    value = WIP_ACTIVE_VALUE if enabled else ""
+    return task_runner([uuid, "modify", f"{WIP_UDA_NAME}:{value}"], capture_output=True)
+
+
 def run_start(filters: Sequence[str]) -> int:
     """
     Start a move and log time.
     """
+    if not ensure_wip_uda_present("start"):
+        return 1
     try:
         candidates = load_task_snapshots(filters)
     except RuntimeError as exc:
@@ -856,6 +966,13 @@ def run_start(filters: Sequence[str]) -> int:
         for task in other_active:
             result = run_task_command([task.uuid, "stop"], capture_output=True)
             _print_taskwarrior_output(result)
+            if result.returncode != 0:
+                return result.returncode
+        for task in other_active:
+            wip_result = _apply_wip_update(task.uuid, False, run_task_command)
+            _print_taskwarrior_output(wip_result)
+            if wip_result.returncode != 0:
+                return wip_result.returncode
         for task in other_active:
             if task.start and task.uuid not in open_uuids:
                 store.add_entry(task, task.start, end=now)
@@ -865,6 +982,10 @@ def run_start(filters: Sequence[str]) -> int:
         _print_taskwarrior_output(result)
         if result.returncode != 0:
             return result.returncode
+    wip_result = _apply_wip_update(target.uuid, True, run_task_command)
+    _print_taskwarrior_output(wip_result)
+    if wip_result.returncode != 0:
+        return wip_result.returncode
 
     if not target_active or target.uuid not in open_uuids:
         start_time = target.start or now
@@ -876,6 +997,8 @@ def run_stop(filters: Sequence[str]) -> int:
     """
     Stop active moves and log time.
     """
+    if not ensure_wip_uda_present("stop"):
+        return 1
     try:
         candidates = load_task_snapshots(filters) if filters else []
     except RuntimeError as exc:
@@ -898,6 +1021,11 @@ def run_stop(filters: Sequence[str]) -> int:
         _print_taskwarrior_output(result)
         if result.returncode != 0:
             return result.returncode
+    for task in active:
+        wip_result = _apply_wip_update(task.uuid, False, run_task_command)
+        _print_taskwarrior_output(wip_result)
+        if wip_result.returncode != 0:
+            return wip_result.returncode
     for task in active:
         if task.start and task.uuid not in open_uuids:
             store.add_entry(task, task.start, end=now)

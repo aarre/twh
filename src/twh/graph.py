@@ -127,6 +127,32 @@ def parse_task_timestamp(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def parse_task_boolean(value: Optional[object]) -> bool:
+    """
+    Parse Taskwarrior boolean-ish values into a bool.
+
+    Parameters
+    ----------
+    value : Optional[object]
+        Raw Taskwarrior value.
+
+    Returns
+    -------
+    bool
+        Parsed boolean.
+    """
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value).strip().lower()
+    if text in {"", "0", "0.0", "false", "no", "off", "none", "null"}:
+        return False
+    return True
+
+
 def format_task_date(value: Optional[str]) -> str:
     """
     Format a Taskwarrior timestamp as a date string.
@@ -191,7 +217,7 @@ def task_state(task: Dict, by_uuid: Dict[str, Dict]) -> str:
     """
     if any(dep in by_uuid for dep in parse_dependencies(task.get("depends"))):
         return "blocked"
-    if task.get("start"):
+    if parse_task_boolean(task.get("wip")):
         return "started"
     return "normal"
 

@@ -189,6 +189,47 @@ def test_review_task_from_json_parses_start():
     assert task.start == datetime(2024, 1, 2, 12, 0, 0, tzinfo=timezone.utc)
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, False),
+        ("", False),
+        ("false", False),
+        ("0", False),
+        ("true", True),
+        ("yes", True),
+        ("1", True),
+        ("maybe", True),
+    ],
+)
+@pytest.mark.unit
+def test_review_task_from_json_parses_wip(value, expected):
+    """
+    Ensure wip values are parsed for review tasks.
+
+    Parameters
+    ----------
+    value : object
+        Raw Taskwarrior wip value.
+    expected : bool
+        Expected parsed wip value.
+
+    Returns
+    -------
+    None
+        This test asserts wip parsing.
+    """
+    payload = {
+        "uuid": "u1",
+        "description": "Wip move",
+        "wip": value,
+    }
+
+    task = review.ReviewTask.from_json(payload)
+
+    assert task.wip is expected
+
+
 @pytest.mark.unit
 def test_review_task_from_json_parses_opt_auto():
     """
@@ -1283,21 +1324,21 @@ def test_rank_candidates_orders_by_schedule_time(field):
     assert [item.task.uuid for item in ranked] == ["u1", "u2"]
 
 @pytest.mark.parametrize(
-    ("start", "expect_marker", "expect_color"),
+    ("wip", "expect_marker", "expect_color"),
     [
-        (None, False, False),
-        (datetime(2024, 1, 2, 12, 0, 0), True, True),
+        (False, False, False),
+        (True, True, True),
     ],
 )
 @pytest.mark.unit
-def test_format_ondeck_candidates_table(start, expect_marker, expect_color):
+def test_format_ondeck_candidates_table(wip, expect_marker, expect_color):
     """
     Ensure ondeck candidates render in a Taskwarrior-style table with scores.
 
     Parameters
     ----------
-    start : datetime | None
-        Start timestamp to set on the move.
+    wip : bool
+        WIP flag to set on the move.
     expect_marker : bool
         True when the in-progress marker should appear.
     expect_color : bool
@@ -1314,8 +1355,8 @@ def test_format_ondeck_candidates_table(start, expect_marker, expect_color):
         "description": "Move A",
         "urgency": 1.23,
     }
-    if start:
-        raw["start"] = "20240102T120000Z"
+    if wip:
+        raw["wip"] = "1"
 
     task = review.ReviewTask(
         uuid="u1",
@@ -1328,7 +1369,7 @@ def test_format_ondeck_candidates_table(start, expect_marker, expect_color):
         opt=1,
         diff=1.0,
         mode=None,
-        start=start,
+        wip=wip,
         dominates=[],
         raw=raw,
     )
@@ -1546,24 +1587,21 @@ def test_sort_ondeck_candidates_by_due(sort_value, expected_order):
     assert [item.task.uuid for item in ordered] == expected_order
 
 @pytest.mark.parametrize(
-    ("start", "expected_marker"),
+    ("wip", "expected_marker"),
     [
-        (None, ""),
-        (
-            datetime(2024, 1, 2, 12, 0, 0),
-            f" {review.colorize_in_progress(review.IN_PROGRESS_LABEL)}",
-        ),
+        (False, ""),
+        (True, f" {review.colorize_in_progress(review.IN_PROGRESS_LABEL)}"),
     ],
 )
 @pytest.mark.unit
-def test_started_marker(start, expected_marker):
+def test_started_marker(wip, expected_marker):
     """
     Ensure started moves emit an in-progress marker.
 
     Parameters
     ----------
-    start : datetime | None
-        Start timestamp to set on the move.
+    wip : bool
+        WIP flag to set on the move.
     expected_marker : str
         Expected marker string.
 
@@ -1581,7 +1619,7 @@ def test_started_marker(start, expected_marker):
         imp=1,
         urg=1,
         opt=1,
-        start=start,
+        wip=wip,
         dominates=[],
         raw={},
     )
@@ -1590,21 +1628,21 @@ def test_started_marker(start, expected_marker):
 
 
 @pytest.mark.parametrize(
-    ("start", "expected_present"),
+    ("wip", "expected_present"),
     [
-        (None, False),
-        (datetime(2024, 1, 2, 12, 0, 0), True),
+        (False, False),
+        (True, True),
     ],
 )
 @pytest.mark.unit
-def test_format_missing_metadata_line_marks_started(start, expected_present):
+def test_format_missing_metadata_line_marks_started(wip, expected_present):
     """
     Ensure missing metadata lines flag started moves.
 
     Parameters
     ----------
-    start : datetime | None
-        Start timestamp to set on the move.
+    wip : bool
+        WIP flag to set on the move.
     expected_present : bool
         True when the in-progress marker should appear.
 
@@ -1622,7 +1660,7 @@ def test_format_missing_metadata_line_marks_started(start, expected_present):
         imp=None,
         urg=1,
         opt=1,
-        start=start,
+        wip=wip,
         dominates=[],
         raw={},
     )
@@ -1634,21 +1672,21 @@ def test_format_missing_metadata_line_marks_started(start, expected_present):
 
 
 @pytest.mark.parametrize(
-    ("start", "expected_present"),
+    ("wip", "expected_present"),
     [
-        (None, False),
-        (datetime(2024, 1, 2, 12, 0, 0), True),
+        (False, False),
+        (True, True),
     ],
 )
 @pytest.mark.unit
-def test_format_task_rationale_marks_started(start, expected_present):
+def test_format_task_rationale_marks_started(wip, expected_present):
     """
     Ensure candidate output flags started moves.
 
     Parameters
     ----------
-    start : datetime | None
-        Start timestamp to set on the move.
+    wip : bool
+        WIP flag to set on the move.
     expected_present : bool
         True when the in-progress marker should appear.
 
@@ -1668,7 +1706,7 @@ def test_format_task_rationale_marks_started(start, expected_present):
         opt=1,
         diff=1.0,
         mode="analysis",
-        start=start,
+        wip=wip,
         dominates=[],
         raw={},
     )
