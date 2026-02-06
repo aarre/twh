@@ -1,3 +1,31 @@
+## 0.19.0 (2026-02-05)
+
+### Features
+
+- alphabetize twh help output
+- add twh help command
+- enforce canonical taskrc and mark annotations
+- **ondeck**: persist incremental wizard updates
+- add time-criticality ranking to ondeck
+- **ondeck**: add rank and score columns
+- reject reserved mode values
+
+### Fixes
+
+- trust task udas for UDA checks
+
+### Documentation
+
+- note chezmoi file constraint
+- document reserved mode listing
+- note pytest runner
+- note reserved mode values
+
+### Tests
+
+- cover README reserved mode listing
+- cover reserved mode values
+
 ## 0.18.0 (2026-02-03)
 
 ### Features
