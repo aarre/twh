@@ -2932,6 +2932,7 @@ TWH_HELP_ENTRIES: Tuple[Tuple[str, str], ...] = (
 TWH_COMMANDS: Set[str] = {command for command, _ in TWH_HELP_ENTRIES}
 TWH_HELP_ARGS = {"-h", "--help", "--install-completion", "--show-completion"}
 DEFER_COMMANDS = {"defer", "resurface"}
+SELECTOR_COMMANDS = DEFER_COMMANDS | {"start", "stop"}
 
 
 def get_twh_help_lines() -> List[str]:
@@ -2962,7 +2963,7 @@ def get_twh_help_lines() -> List[str]:
 
 def normalize_defer_command_args(argv: List[str]) -> List[str]:
     """
-    Move defer/resurface tokens to the front of the argv list.
+    Move selector command tokens to the front of the argv list.
 
     Parameters
     ----------
@@ -2980,9 +2981,11 @@ def normalize_defer_command_args(argv: List[str]) -> List[str]:
     ['resurface', '1', '2d']
     >>> normalize_defer_command_args(["resurface", "1", "2d"])
     ['resurface', '1', '2d']
+    >>> normalize_defer_command_args(["73", "start"])
+    ['start', '73']
     """
     for idx, token in enumerate(argv):
-        if token in DEFER_COMMANDS:
+        if token in SELECTOR_COMMANDS:
             if idx == 0:
                 return argv
             return [token, *argv[:idx], *argv[idx + 1 :]]

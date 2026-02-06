@@ -256,12 +256,14 @@ def test_help_command_is_alphabetized(help_output_lines):
             ["project:work", "defer", "2h", "--mode", "analysis"],
             ["defer", "project:work", "2h", "--mode", "analysis"],
         ),
+        (["73", "start"], ["start", "73"]),
+        (["73", "stop"], ["stop", "73"]),
     ],
 )
 @pytest.mark.unit
 def test_normalize_defer_command_args(argv, expected):
     """
-    Ensure defer/resurface tokens are normalized to the front.
+    Ensure selector command tokens are normalized to the front.
 
     Parameters
     ----------

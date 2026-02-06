@@ -61,6 +61,7 @@ Already implemented, among other requirements:
 * README now includes uv-based environment/dependency setup and reinstall steps.
 * `twh ondeck` marks WIP moves as in progress in its output, using a green highlight for visibility; WIP is tracked via a `wip` UDA set by `twh start` and cleared by `twh stop`.
 * Taskwarrior can return non-zero with "already started"/"not started" messages; `twh start/stop` should still update `wip` in those cases.
+* `twh` should normalize selector-first invocations like `twh 73 start`/`twh 73 stop` so they run the internal start/stop flows.
 * `twh ondeck` appends `*` to move IDs in the report when the move has annotations.
 * `twh` always uses Taskwarrior 3 via the `task` binary and the canonical `~/.taskrc`, ignoring `TASKRC` or `rc:` overrides.
 * Do not delete Chezmoi-managed files.
