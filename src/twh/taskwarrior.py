@@ -251,6 +251,47 @@ def get_taskrc_path() -> Optional[Path]:
     return Path.home() / ".taskrc"
 
 
+def get_task_data_location(taskrc_path: Optional[Path] = None) -> Path:
+    """
+    Return the Taskwarrior data directory.
+
+    Parameters
+    ----------
+    taskrc_path : Optional[Path], optional
+        Path to the taskrc file (default: resolved taskrc).
+
+    Returns
+    -------
+    Path
+        Taskwarrior data directory.
+
+    Examples
+    --------
+    >>> import tempfile
+    >>> tmp = Path(tempfile.mkdtemp())
+    >>> taskrc = tmp / ".taskrc"
+    >>> _ = taskrc.write_text("data.location=task-data\\n", encoding="utf-8")
+    >>> get_task_data_location(taskrc_path=taskrc) == (tmp / "task-data")
+    True
+    """
+    taskrc = taskrc_path or get_taskrc_path()
+    default = Path.home() / ".task"
+    if not taskrc:
+        return default
+    raw_value = _parse_taskrc_setting(taskrc, "data.location")
+    if not raw_value:
+        raw_value = _parse_taskrc_setting(taskrc, "rc.data.location")
+    if not raw_value:
+        return default
+    cleaned = raw_value.strip().strip('"').strip("'")
+    if not cleaned:
+        return default
+    expanded = Path(os.path.expandvars(os.path.expanduser(cleaned)))
+    if not expanded.is_absolute():
+        expanded = (taskrc.parent / expanded).resolve()
+    return expanded
+
+
 def taskrc_udas_present(
     fields: Iterable[str],
     taskrc_path: Optional[Path] = None,

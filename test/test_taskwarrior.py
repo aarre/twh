@@ -226,6 +226,64 @@ def test_get_taskrc_path_ignores_taskrc_env(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
+    ("contents", "expected"),
+    [
+        ("data.location=task-data\n", "task-data"),
+        ("data.location=sub/dir\n", "sub/dir"),
+    ],
+)
+@pytest.mark.unit
+def test_get_task_data_location_reads_taskrc(tmp_path, contents, expected):
+    """
+    Ensure data.location is resolved relative to the taskrc directory.
+
+    Returns
+    -------
+    None
+        This test asserts data.location parsing.
+    """
+    taskrc = tmp_path / ".taskrc"
+    taskrc.write_text(contents, encoding="utf-8")
+
+    assert taskwarrior.get_task_data_location(taskrc_path=taskrc) == tmp_path / expected
+
+
+@pytest.mark.unit
+def test_get_task_data_location_defaults_to_home(tmp_path, monkeypatch):
+    """
+    Ensure missing data.location falls back to ~/.task.
+
+    Returns
+    -------
+    None
+        This test asserts default data location selection.
+    """
+    taskrc = tmp_path / ".taskrc"
+    taskrc.write_text("", encoding="utf-8")
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setattr(taskwarrior.Path, "home", lambda: fake_home)
+
+    assert taskwarrior.get_task_data_location(taskrc_path=taskrc) == fake_home / ".task"
+
+
+@pytest.mark.unit
+def test_taskwarrior_doctest_examples():
+    """
+    Run doctest examples embedded in taskwarrior helpers.
+
+    Returns
+    -------
+    None
+        This test asserts doctest coverage for taskwarrior helpers.
+    """
+    import doctest
+
+    results = doctest.testmod(taskwarrior)
+    assert results.failed == 0
+
+
+@pytest.mark.parametrize(
     ("args", "expected"),
     [
         (["list"], ["rc.search.case.sensitive=no", "list"]),

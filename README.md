@@ -96,7 +96,8 @@ prompts for blocked move IDs. The relationship is stored in Taskwarrior's
 makes move 32 depend on move 31.
 
 `twh start` and `twh stop` behave like `task start` and `task stop` but also
-write time logs under `~/.task/twh-time.db`. Starting a move stops any other
+write time logs to `twh-time.db` inside Taskwarrior's data directory
+(`data.location` in `~/.taskrc`, defaulting to `~/.task`). Starting a move stops any other
 started moves first, so only one move can be active at a time. Each log entry
 stores the move UUID, description, project, tags, mode, and start/end times.
 Use `twh time` for reports, `twh time entries` to list raw entries, and

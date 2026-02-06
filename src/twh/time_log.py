@@ -17,6 +17,7 @@ from .taskwarrior import (
     apply_case_insensitive_overrides,
     apply_taskrc_overrides,
     filter_modified_zero_lines,
+    get_task_data_location,
     read_tasks_from_json,
 )
 
@@ -94,7 +95,7 @@ def get_task_directory() -> Path:
     Path
         Taskwarrior data directory path.
     """
-    return Path.home() / ".task"
+    return get_task_data_location()
 
 
 def get_time_log_path() -> Path:
