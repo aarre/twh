@@ -1430,6 +1430,121 @@ def test_format_ondeck_candidates_annotation_marker(annotations, expected_id):
     parts = re.split(r"\s{2,}", clean_line.strip())
     assert parts[0] == expected_id
 
+
+@pytest.mark.parametrize(
+    ("value", "expected_column", "expected_descending"),
+    [
+        ("due", "due", False),
+        ("-due", "due", True),
+    ],
+)
+@pytest.mark.unit
+def test_parse_ondeck_sort(value, expected_column, expected_descending):
+    """
+    Ensure ondeck sort parsing detects direction and validates columns.
+
+    Parameters
+    ----------
+    value : str
+        Sort flag value.
+    expected_column : str
+        Expected normalized column name.
+    expected_descending : bool
+        Expected sort direction.
+
+    Returns
+    -------
+    None
+        This test asserts sort parsing behavior.
+    """
+    columns = ["id", "description", "due", "rank", "score"]
+
+    column, descending = review.parse_ondeck_sort(value, columns)
+
+    assert column == expected_column
+    assert descending is expected_descending
+
+
+@pytest.mark.unit
+def test_parse_ondeck_sort_rejects_unknown_column():
+    """
+    Ensure unknown sort columns raise a ValueError.
+
+    Returns
+    -------
+    None
+        This test asserts invalid sort handling.
+    """
+    with pytest.raises(ValueError):
+        review.parse_ondeck_sort("unknown", ["id", "description"])
+
+
+@pytest.mark.parametrize(
+    ("sort_value", "expected_order"),
+    [
+        ("due", ["u2", "u1"]),
+        ("-due", ["u1", "u2"]),
+    ],
+)
+@pytest.mark.unit
+def test_sort_ondeck_candidates_by_due(sort_value, expected_order):
+    """
+    Ensure ondeck sorting orders by due date with optional reversal.
+
+    Parameters
+    ----------
+    sort_value : str
+        Sort flag value.
+    expected_order : list[str]
+        Expected UUID order.
+
+    Returns
+    -------
+    None
+        This test asserts due-date sorting behavior.
+    """
+    later = review.ReviewTask(
+        uuid="u1",
+        id=1,
+        description="Later",
+        project=None,
+        depends=[],
+        imp=1,
+        urg=1,
+        opt=1,
+        diff=1.0,
+        mode=None,
+        raw={"uuid": "u1", "id": 1, "description": "Later", "due": "20240110T000000Z"},
+    )
+    sooner = review.ReviewTask(
+        uuid="u2",
+        id=2,
+        description="Sooner",
+        project=None,
+        depends=[],
+        imp=1,
+        urg=1,
+        opt=1,
+        diff=1.0,
+        mode=None,
+        raw={"uuid": "u2", "id": 2, "description": "Sooner", "due": "20240105T000000Z"},
+    )
+    candidates = [
+        review.ScoredTask(task=later, score=1.0, components={}),
+        review.ScoredTask(task=sooner, score=2.0, components={}),
+    ]
+    rank_map = {item.task.uuid: idx + 1 for idx, item in enumerate(candidates)}
+    sort_key, descending = review.parse_ondeck_sort(sort_value, ["due", "rank", "score", "id"])
+
+    ordered = review.sort_ondeck_candidates(
+        candidates,
+        sort_key=sort_key,
+        descending=descending,
+        rank_map=rank_map,
+    )
+
+    assert [item.task.uuid for item in ordered] == expected_order
+
 @pytest.mark.parametrize(
     ("start", "expected_marker"),
     [

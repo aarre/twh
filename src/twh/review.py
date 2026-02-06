@@ -5,11 +5,13 @@ Assess Taskwarrior move metadata and suggest next actions.
 
 from __future__ import annotations
 
+import json
 import math
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone, tzinfo
 from dataclasses import dataclass, field
+from functools import cmp_to_key
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple, TYPE_CHECKING
 
 from .taskwarrior import (
@@ -1523,6 +1525,282 @@ def _build_ondeck_display_payload(
     return payload
 
 
+def _ondeck_sort_default_descending(column: str) -> bool:
+    """
+    Return whether a column sorts descending by default.
+
+    Parameters
+    ----------
+    column : str
+        Column name.
+
+    Returns
+    -------
+    bool
+        True when the default sort is descending.
+
+    Examples
+    --------
+    >>> _ondeck_sort_default_descending("score")
+    True
+    >>> _ondeck_sort_default_descending("due")
+    False
+    """
+    return column in {"age", "score", "urgency"}
+
+
+def parse_ondeck_sort(
+    sort_value: Optional[str],
+    columns: Sequence[str],
+) -> Optional[Tuple[str, bool]]:
+    """
+    Parse the ondeck sort flag.
+
+    Parameters
+    ----------
+    sort_value : Optional[str]
+        Sort flag value (for example "due" or "-due").
+    columns : Sequence[str]
+        Available sort columns.
+
+    Returns
+    -------
+    Optional[Tuple[str, bool]]
+        Tuple of (column, descending) when provided.
+
+    Examples
+    --------
+    >>> parse_ondeck_sort("due", ["due", "rank"])
+    ('due', False)
+    >>> parse_ondeck_sort("-due", ["due", "rank"])
+    ('due', True)
+    """
+    if not sort_value:
+        return None
+    text = str(sort_value).strip()
+    if not text:
+        return None
+    reverse_flag = text.startswith("-")
+    if reverse_flag:
+        text = text[1:]
+    column = text.strip().lower()
+    aliases = {"urgency": "rank", "urg": "rank"}
+    column = aliases.get(column, column)
+    if not column:
+        raise ValueError("Sort key is required.")
+    if column not in columns:
+        columns_list = ", ".join(columns)
+        raise ValueError(
+            f"Unknown sort key '{column}'. Choose from: {columns_list}."
+        )
+    default_desc = _ondeck_sort_default_descending(column)
+    descending = (not default_desc) if reverse_flag else default_desc
+    return column, descending
+
+
+def _normalize_sort_text(value: Optional[str]) -> Optional[str]:
+    """
+    Normalize text values for sorting.
+
+    Parameters
+    ----------
+    value : Optional[str]
+        Raw text value.
+
+    Returns
+    -------
+    Optional[str]
+        Lowercased, stripped text or None when empty.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text.lower() if text else None
+
+
+def _normalize_sort_datetime(value: Optional[datetime]) -> Optional[datetime]:
+    """
+    Normalize datetimes for sorting.
+
+    Parameters
+    ----------
+    value : Optional[datetime]
+        Datetime value to normalize.
+
+    Returns
+    -------
+    Optional[datetime]
+        Timezone-normalized datetime or None.
+    """
+    if value is None:
+        return None
+    return normalize_review_datetime(value)
+
+
+def _ondeck_sort_priority(value: Optional[str]) -> Optional[int]:
+    """
+    Normalize Taskwarrior priority for sorting.
+
+    Parameters
+    ----------
+    value : Optional[str]
+        Priority value (H/M/L).
+
+    Returns
+    -------
+    Optional[int]
+        Numeric priority weight or None when unset.
+    """
+    if value is None:
+        return None
+    text = str(value).strip().upper()
+    if not text:
+        return None
+    order = {"H": 0, "M": 1, "L": 2}
+    return order.get(text, 3)
+
+
+def _ondeck_sort_value(
+    candidate: ScoredTask,
+    column: str,
+    rank_map: Dict[str, int],
+    now: datetime,
+) -> Any:
+    """
+    Extract a comparable sort value for a candidate column.
+
+    Parameters
+    ----------
+    candidate : ScoredTask
+        Candidate move to inspect.
+    column : str
+        Column name to extract.
+    rank_map : Dict[str, int]
+        Mapping of UUIDs to composite ranks.
+    now : datetime
+        Reference time for age calculations.
+
+    Returns
+    -------
+    Any
+        Comparable sort value or None when missing.
+    """
+    task = candidate.task
+    raw = task.raw
+    col = column.lower()
+    if col == "rank":
+        return rank_map.get(task.uuid)
+    if col == "score":
+        return candidate.score
+    if col == "id":
+        return task.id
+    if col == "uuid":
+        return _normalize_sort_text(task.uuid)
+    if col == "description":
+        return _normalize_sort_text(task.description)
+    if col == "project":
+        return _normalize_sort_text(task.project)
+    if col == "priority":
+        return _ondeck_sort_priority(raw.get("priority"))
+    if col == "tags":
+        tags = raw.get("tags") or []
+        if isinstance(tags, list):
+            text = ",".join(str(tag).strip() for tag in tags if str(tag).strip())
+        else:
+            text = str(tags).strip()
+        return _normalize_sort_text(text)
+    if col == "depends":
+        deps = task.depends
+        text = ",".join(dep for dep in deps if dep)
+        return _normalize_sort_text(text)
+    if col == "annotations":
+        return len(task.annotations)
+    if col == "age":
+        entry = parse_task_timestamp(raw.get("entry"))
+        entry = _normalize_sort_datetime(entry)
+        if not entry:
+            return None
+        return (now - entry).total_seconds()
+    if col in {"scheduled", "wait", "start"}:
+        if col == "scheduled":
+            return _normalize_sort_datetime(task.scheduled)
+        if col == "wait":
+            return _normalize_sort_datetime(task.wait)
+        return _normalize_sort_datetime(task.start)
+    if col in {"entry", "modified", "due", "until", "end", "reviewed"}:
+        return _normalize_sort_datetime(parse_task_timestamp(raw.get(col)))
+    if col == "status":
+        return _normalize_sort_text(raw.get("status"))
+    value = raw.get(col)
+    if value is None:
+        return None
+    if isinstance(value, list):
+        text = ",".join(str(item).strip() for item in value if str(item).strip())
+        return _normalize_sort_text(text)
+    if isinstance(value, dict):
+        return _normalize_sort_text(json.dumps(value, sort_keys=True))
+    if isinstance(value, (int, float)):
+        return value
+    return _normalize_sort_text(str(value))
+
+
+def sort_ondeck_candidates(
+    candidates: Sequence[ScoredTask],
+    *,
+    sort_key: str,
+    descending: bool,
+    rank_map: Dict[str, int],
+    now: Optional[datetime] = None,
+) -> List[ScoredTask]:
+    """
+    Sort ondeck candidates by the requested column.
+
+    Parameters
+    ----------
+    candidates : Sequence[ScoredTask]
+        Candidates to sort.
+    sort_key : str
+        Column to sort by.
+    descending : bool
+        Whether to sort in descending order.
+    rank_map : Dict[str, int]
+        Mapping of UUIDs to composite ranks.
+    now : Optional[datetime], optional
+        Reference time for age/date sorting (default: current time).
+
+    Returns
+    -------
+    List[ScoredTask]
+        Sorted candidates.
+    """
+    if not candidates:
+        return []
+    now_value = normalize_review_datetime(now or datetime.now().astimezone())
+    evaluated = []
+    for item in candidates:
+        value = _ondeck_sort_value(item, sort_key, rank_map, now_value)
+        missing = value is None or (isinstance(value, str) and not value)
+        evaluated.append((item, value, missing, rank_map.get(item.task.uuid, 10**9)))
+
+    def compare(left, right):
+        left_item, left_value, left_missing, left_rank = left
+        right_item, right_value, right_missing, right_rank = right
+        if left_missing != right_missing:
+            return -1 if not left_missing else 1
+        if left_value != right_value:
+            if descending:
+                return -1 if left_value > right_value else 1
+            return -1 if left_value < right_value else 1
+        if left_rank != right_rank:
+            return -1 if left_rank < right_rank else 1
+        if left_item.task.uuid != right_item.task.uuid:
+            return -1 if left_item.task.uuid < right_item.task.uuid else 1
+        return 0
+
+    ordered = sorted(evaluated, key=cmp_to_key(compare))
+    return [item for item, *_rest in ordered]
+
+
 def _prepare_ondeck_columns(
     columns: List[str],
     labels: Optional[List[str]],
@@ -1575,6 +1853,7 @@ def format_ondeck_candidates(
     candidates: Sequence[ScoredTask],
     columns: Optional[List[str]] = None,
     labels: Optional[List[str]] = None,
+    rank_map: Optional[Dict[str, int]] = None,
 ) -> List[str]:
     """
     Format ondeck candidates using Taskwarrior-style columns and colors.
@@ -1589,6 +1868,8 @@ def format_ondeck_candidates(
         Column names to render (default: Taskwarrior report columns).
     labels : Optional[List[str]], optional
         Column labels to render (default: Taskwarrior report labels).
+    rank_map : Optional[Dict[str, int]], optional
+        Mapping of UUIDs to composite ranks (default: sequential order).
 
     Returns
     -------
@@ -1652,8 +1933,15 @@ def format_ondeck_candidates(
         columns, labels = get_taskwarrior_columns_and_labels()
     columns, labels = _prepare_ondeck_columns(columns, labels)
     uuid_to_id = {item.task.uuid: item.task.id for item in candidates}
+    rank_map = rank_map or {}
     rows = [
-        (_build_ondeck_display_payload(item, rank=index + 1), "")
+        (
+            _build_ondeck_display_payload(
+                item,
+                rank_map.get(item.task.uuid, index + 1),
+            ),
+            "",
+        )
         for index, item in enumerate(candidates)
     ]
     return render_task_table(rows, columns, labels, uuid_to_id)
@@ -2131,6 +2419,7 @@ def run_ondeck(
     top: int,
     strict_mode: bool,
     include_dominated: bool,
+    sort: Optional[str] = None,
     filters: Optional[Sequence[str]] = None,
     input_func: Callable[[str], str] = input,
 ) -> int:
@@ -2149,6 +2438,8 @@ def run_ondeck(
         Require mode match when True.
     include_dominated : bool
         Include dominated moves when True.
+    sort : Optional[str]
+        Optional sort key for the output (default: None).
     filters : Optional[Sequence[str]]
         Additional Taskwarrior filter tokens.
     input_func : Callable[[str], str], optional
@@ -2368,11 +2659,39 @@ def run_ondeck(
         print("No ready moves found (or all were filtered).")
         return 0
 
+    from . import get_taskwarrior_columns_and_labels
+
+    columns, labels = get_taskwarrior_columns_and_labels()
+    columns, labels = _prepare_ondeck_columns(columns, labels)
+    rank_map = {
+        item.task.uuid: index + 1
+        for index, item in enumerate(report.candidates)
+    }
+    ordered_candidates = list(report.candidates)
+    try:
+        parsed_sort = parse_ondeck_sort(sort, columns)
+    except ValueError as exc:
+        print(f"twh: ondeck failed: {exc}")
+        return 1
+    if parsed_sort:
+        sort_key, descending = parsed_sort
+        ordered_candidates = sort_ondeck_candidates(
+            ordered_candidates,
+            sort_key=sort_key,
+            descending=descending,
+            rank_map=rank_map,
+        )
+
     print("\nTop move candidates:")
-    for line in format_ondeck_candidates(report.candidates):
+    for line in format_ondeck_candidates(
+        ordered_candidates,
+        columns=columns,
+        labels=labels,
+        rank_map=rank_map,
+    ):
         print(line)
 
-    best = report.candidates[0].task
+    best = ordered_candidates[0].task
     best_id = str(best.id) if best.id is not None else best.uuid[:8]
     print(
         f"\nNext move suggestion: {best_id} - {best.description}{started_marker(best)}"
