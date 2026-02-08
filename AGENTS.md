@@ -62,6 +62,7 @@ Already implemented, among other requirements:
 * `twh ondeck` marks WIP moves as in progress in its output, using a green highlight for visibility; WIP is tracked via a `wip` UDA set by `twh start` and cleared by `twh stop`.
 * Taskwarrior can return non-zero with "already started"/"not started" messages; `twh start/stop` should still update `wip` in those cases.
 * `twh` should normalize selector-first invocations like `twh 73 start`/`twh 73 stop` so they run the internal start/stop flows.
+* `twh` should also normalize Taskwarrior-style filter-first internal invocations (for example `twh project.not:work.competitiveness ondeck` and `twh project:work option --apply`) while leaving delegated subcommands like `twh context list` untouched.
 * `twh ondeck` appends `*` to move IDs in the report when the move has annotations.
 * `twh` always uses Taskwarrior 3 via the `task` binary and the canonical `~/.taskrc`, ignoring `TASKRC` or `rc:` overrides.
 * Do not delete Chezmoi-managed files.

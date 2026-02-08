@@ -9,6 +9,7 @@ import sys
 import pytest
 import twh
 import twh.renderer as renderer
+import twh.review as review_module
 from typer.testing import CliRunner
 
 GRAPH_COMMAND = twh.graph
@@ -150,6 +151,9 @@ def test_apply_context_to_add_args(
     [
         ([], True),
         (["project:work"], True),
+        (["project.not:work.competitiveness", "ondeck"], False),
+        (["project:work", "option", "--apply"], False),
+        (["context", "list"], True),
         (["add", "Next task"], False),
         (["list"], False),
         (["reverse"], False),
@@ -258,6 +262,22 @@ def test_help_command_is_alphabetized(help_output_lines):
         ),
         (["73", "start"], ["start", "73"]),
         (["73", "stop"], ["stop", "73"]),
+        (
+            ["project.not:work.competitiveness", "ondeck"],
+            ["ondeck", "project.not:work.competitiveness"],
+        ),
+        (
+            ["project:work", "option", "--apply"],
+            ["option", "project:work", "--apply"],
+        ),
+        (
+            ["context", "list"],
+            ["context", "list"],
+        ),
+        (
+            ["ondeck", "--sort", "start"],
+            ["ondeck", "--sort", "start"],
+        ),
     ],
 )
 @pytest.mark.unit
@@ -358,12 +378,43 @@ def test_ondeck_candidate_count_option(monkeypatch, argv, expected_top):
         captured.update(kwargs)
         return 0
 
-    monkeypatch.setattr(twh.review, "run_ondeck", fake_run_ondeck)
+    monkeypatch.setattr(review_module, "run_ondeck", fake_run_ondeck)
 
     result = runner.invoke(twh.build_app(), argv)
 
     assert result.exit_code == 0
     assert captured["top"] == expected_top
+
+
+@pytest.mark.unit
+def test_main_filter_first_ondeck_forwards_filters(monkeypatch):
+    """
+    Ensure filter-first ondeck invocations route to ondeck with filters.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture for patching CLI dependencies.
+
+    Returns
+    -------
+    None
+        This test asserts filter-first ondeck argument routing.
+    """
+    captured: dict = {}
+
+    def fake_run_ondeck(**kwargs):
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(review_module, "run_ondeck", fake_run_ondeck)
+    monkeypatch.setattr(sys, "argv", ["twh", "project.not:work.competitiveness", "ondeck"])
+
+    with pytest.raises(SystemExit) as excinfo:
+        twh.main()
+
+    assert excinfo.value.code == 0
+    assert captured["filters"] == ["project.not:work.competitiveness"]
 
 
 @pytest.mark.parametrize(
@@ -616,6 +667,7 @@ def test_graph_falls_back_to_ascii_when_render_fails(
         ["twh", "tree"],
         ["twh", "graph"],
         ["twh", "ondeck"],
+        ["twh", "project.not:work.competitiveness", "ondeck"],
         ["twh", "option"],
         ["twh", "dominance"],
         ["twh", "calibrate"],

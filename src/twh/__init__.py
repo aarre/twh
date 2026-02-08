@@ -2936,6 +2936,22 @@ TWH_COMMANDS: Set[str] = {command for command, _ in TWH_HELP_ENTRIES}
 TWH_HELP_ARGS = {"-h", "--help", "--install-completion", "--show-completion"}
 DEFER_COMMANDS = {"defer", "resurface"}
 SELECTOR_COMMANDS = DEFER_COMMANDS | {"start", "stop"}
+FILTER_FIRST_COMMANDS = {
+    "calibrate",
+    "criticality",
+    "defer",
+    "diagnose",
+    "dominance",
+    "ondeck",
+    "option",
+    "resurface",
+    "simple",
+    "start",
+    "stop",
+}
+_FILTER_LOGIC_TOKENS = {"and", "or", "xor", "(", ")"}
+_ID_SELECTOR_RE = re.compile(r"^\d+(?:[-,]\d+)*$")
+_UUID_PREFIX_RE = re.compile(r"^[0-9a-fA-F]{8,}$")
 
 
 def get_twh_help_lines() -> List[str]:
@@ -2966,7 +2982,7 @@ def get_twh_help_lines() -> List[str]:
 
 def normalize_defer_command_args(argv: List[str]) -> List[str]:
     """
-    Move selector command tokens to the front of the argv list.
+    Move filter-first internal command tokens to the front of the argv list.
 
     Parameters
     ----------
@@ -2982,15 +2998,26 @@ def normalize_defer_command_args(argv: List[str]) -> List[str]:
     --------
     >>> normalize_defer_command_args(["1", "resurface", "2d"])
     ['resurface', '1', '2d']
+    >>> normalize_defer_command_args(["project.not:work.competitiveness", "ondeck"])
+    ['ondeck', 'project.not:work.competitiveness']
     >>> normalize_defer_command_args(["resurface", "1", "2d"])
     ['resurface', '1', '2d']
     >>> normalize_defer_command_args(["73", "start"])
     ['start', '73']
+    >>> normalize_defer_command_args(["context", "list"])
+    ['context', 'list']
+    >>> normalize_defer_command_args(["ondeck", "--sort", "start"])
+    ['ondeck', '--sort', 'start']
     """
-    for idx, token in enumerate(argv):
-        if token in SELECTOR_COMMANDS:
-            if idx == 0:
-                return argv
+    if not argv:
+        return argv
+    first_token = argv[0]
+    if first_token in TWH_COMMANDS or first_token in TWH_HELP_ARGS:
+        return argv
+    if not _looks_like_task_filter_token(first_token):
+        return argv
+    for idx, token in enumerate(argv[1:], start=1):
+        if token in FILTER_FIRST_COMMANDS:
             return [token, *argv[:idx], *argv[idx + 1 :]]
     return argv
 
@@ -3019,19 +3046,68 @@ def should_delegate_to_task(argv: List[str]) -> bool:
     False
     >>> should_delegate_to_task(["list"])
     False
+    >>> should_delegate_to_task(["project.not:work.competitiveness", "ondeck"])
+    False
+    >>> should_delegate_to_task(["context", "list"])
+    True
     >>> should_delegate_to_task(["help"])
     False
     >>> should_delegate_to_task(["--help"])
     False
     """
-    if not argv:
+    normalized = normalize_defer_command_args(argv)
+    if not normalized:
         return True
-    first_arg = argv[0]
+    first_arg = normalized[0]
     if first_arg == "add":
         return False
-    if any(token in DEFER_COMMANDS for token in argv):
-        return False
     return first_arg not in TWH_COMMANDS and first_arg not in TWH_HELP_ARGS
+
+
+def _looks_like_task_filter_token(token: str) -> bool:
+    """
+    Return True when a CLI token resembles a Taskwarrior selector/filter.
+
+    Parameters
+    ----------
+    token : str
+        Token to classify.
+
+    Returns
+    -------
+    bool
+        True when the token looks like a filter expression.
+
+    Examples
+    --------
+    >>> _looks_like_task_filter_token("project.not:work")
+    True
+    >>> _looks_like_task_filter_token("+work")
+    True
+    >>> _looks_like_task_filter_token("1-3")
+    True
+    >>> _looks_like_task_filter_token("context")
+    False
+    >>> _looks_like_task_filter_token("--help")
+    False
+    """
+    stripped = token.strip()
+    if not stripped:
+        return False
+    lowered = stripped.lower()
+    if lowered in _FILTER_LOGIC_TOKENS:
+        return True
+    if ":" in stripped:
+        return True
+    if stripped.startswith("--"):
+        return False
+    if stripped.startswith(("+", "-")) and len(stripped) > 1:
+        return True
+    if stripped.startswith("rc."):
+        return True
+    if _ID_SELECTOR_RE.fullmatch(stripped):
+        return True
+    return _UUID_PREFIX_RE.fullmatch(stripped) is not None
 
 
 def has_help_args(argv: List[str]) -> bool:

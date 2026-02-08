@@ -180,7 +180,9 @@ task udas
 Any core attribute name (from `task _columns`) that is not a UDA (from
 `task udas`) should be treated as reserved mode values.
 You can pass Taskwarrior filter tokens after the command (for example
-`twh ondeck project:work.competitiveness -WAITING`) to limit the scope. The
+`twh ondeck project:work.competitiveness -WAITING`) or before it using
+Taskwarrior-style ordering (for example
+`twh project.not:work.competitiveness ondeck`) to limit the scope. The
 ondeck flow expects the `imp`, `urg`, `opt_human`, `diff`, `mode`,
 `criticality`, `dominates`, and `dominated_by` fields to exist as Taskwarrior
 UDAs if you want to edit them.
