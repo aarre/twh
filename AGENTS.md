@@ -46,7 +46,7 @@ Already implemented, among other requirements:
 * Dominance should never prompt for move pairs already related by dependencies (including when dependencies are stored as IDs), and prompts should show approximate progress (comparisons complete/remaining).
 * Dominance missing/unknown pair checks use reachability maps to avoid slow ondeck/dominance runs on large move sets.
 * `twh ondeck` resolves dominance ordering before prompting for tie-breaking metadata, so metadata prompts only appear after dominance comparisons.
-* `twh ondeck` outputs its top-move list using the default Taskwarrior report columns/colors, but places the ID column first and relabels urgency to `Rank` for the composite ordering (1 is highest) while adding a numeric `Score` column; it defaults to showing 25 candidates.
+* `twh ondeck` outputs its top-move list using the default Taskwarrior report columns/colors, but places the ID column first and relabels urgency to `Rank` for the composite ordering (1 is highest) while adding a numeric `Score` column; it shows all candidates by default and accepts `--number`/`-n` (`--top` alias) to limit the list.
 * `twh ondeck` accepts `--sort <column>` to reorder by any visible column, with `-` prefix reversing the natural order (for example `--sort due` vs `--sort=-due`); docs prefer the spaced form but both are supported.
 * `twh add` suppresses Taskwarrior modify/project completion noise after creating a move (dominance and blocks updates run quietly unless there are errors).
 * Taskwarrior project-completion summary lines are filtered from twh output when relaying command results.

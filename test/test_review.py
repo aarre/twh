@@ -918,15 +918,30 @@ def test_filter_candidates_applies_mode_and_dominates():
     assert [task.uuid for task in candidates] == ["u1"]
 
 
+@pytest.mark.parametrize(
+    ("top", "expected_uuids"),
+    [
+        (None, ["u1", "u2"]),
+        (1, ["u1"]),
+        (2, ["u1", "u2"]),
+    ],
+)
 @pytest.mark.unit
-def test_rank_candidates_orders_by_score():
+def test_rank_candidates_orders_by_score(top, expected_uuids):
     """
     Ensure ranked candidates are sorted by score.
+
+    Parameters
+    ----------
+    top : int | None
+        Maximum number of moves to return. None means no limit.
+    expected_uuids : list[str]
+        Expected ranked UUIDs.
 
     Returns
     -------
     None
-        This test asserts ordering of scored candidates.
+        This test asserts ordering and top-limit behavior.
     """
     t1 = review.ReviewTask(
         uuid="u1",
@@ -957,9 +972,9 @@ def test_rank_candidates_orders_by_score():
         raw={},
     )
 
-    ranked = review.rank_candidates([t2, t1], current_mode=None, top=2)
+    ranked = review.rank_candidates([t2, t1], current_mode=None, top=top)
 
-    assert [item.task.uuid for item in ranked] == ["u1", "u2"]
+    assert [item.task.uuid for item in ranked] == expected_uuids
 
 
 @pytest.mark.unit

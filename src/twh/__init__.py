@@ -2672,10 +2672,13 @@ def build_app():
             "--limit",
             help="Max moves to list when showing missing metadata.",
         ),
-        top: int = typer.Option(
-            25,
+        top: Optional[int] = typer.Option(
+            None,
+            "--number",
+            "-n",
             "--top",
-            help="Show top N candidate moves.",
+            min=1,
+            help="Show up to N candidate moves (default: all).",
         ),
         strict_mode: bool = typer.Option(
             False,

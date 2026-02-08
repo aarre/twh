@@ -150,7 +150,8 @@ report, with the ID column placed first and the urgency column relabeled
 `Rank` to show the composite ordering (1 is the highest-ranked move). A
 separate `Score` column shows the underlying numeric score used in ranking.
 Moves with annotations show an asterisk immediately after the ID number.
-You can show more candidates by default (25; use `--top` to override). WIP
+By default, ondeck shows all candidate moves. Use `--number` (or `-n`) to show
+only the first N candidates (`--top` remains an alias). WIP
 moves are labeled `[IN PROGRESS]` with a green highlight. Use `--mode editorial`
 (plus `--strict-mode` if desired) to bias recommendations to your current mode.
 You can also reorder the output with `--sort <column>` using any visible

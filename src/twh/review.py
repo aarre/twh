@@ -2043,7 +2043,7 @@ def filter_candidates(
 def rank_candidates(
     candidates: Iterable[ReviewTask],
     current_mode: Optional[str],
-    top: int,
+    top: Optional[int],
     dominance_tiers: Optional[List[List[ReviewTask]]] = None,
     now: Optional[datetime] = None,
     graph_tasks: Optional[Iterable[ReviewTask]] = None,
@@ -2057,8 +2057,8 @@ def rank_candidates(
         Moves to score.
     current_mode : Optional[str]
         Current mode for scoring.
-    top : int
-        Number of top candidates to return.
+    top : Optional[int]
+        Number of top candidates to return. When None, return all candidates.
     dominance_tiers : Optional[List[List[ReviewTask]]]
         Dominance tiers to apply (highest first). When omitted, tiers are built
         from the candidate set.
@@ -2102,6 +2102,8 @@ def rank_candidates(
             item.task.uuid,
         )
     )
+    if top is None:
+        return scored
     return scored[:max(0, top)]
 
 
@@ -2110,7 +2112,7 @@ def build_review_report(
     current_mode: Optional[str],
     strict_mode: bool,
     include_dominated: bool,
-    top: int,
+    top: Optional[int],
     now: Optional[datetime] = None,
     *,
     ready: Optional[Iterable[ReviewTask]] = None,
@@ -2130,8 +2132,8 @@ def build_review_report(
         Require strict mode matching when True.
     include_dominated : bool
         Include dominated moves when True.
-    top : int
-        Number of candidates to include.
+    top : Optional[int]
+        Number of candidates to include. When None, include all candidates.
     now : Optional[datetime]
         Reference time for filtering and scheduling (default: now).
     ready : Optional[Iterable[ReviewTask]]
@@ -2434,7 +2436,7 @@ def run_ondeck(
     *,
     mode: Optional[str],
     limit: int,
-    top: int,
+    top: Optional[int],
     strict_mode: bool,
     include_dominated: bool,
     sort: Optional[str] = None,
@@ -2450,8 +2452,8 @@ def run_ondeck(
         Current mode context.
     limit : int
         Max missing moves to list.
-    top : int
-        Number of top candidates to show.
+    top : Optional[int]
+        Number of top candidates to show. When None, show all candidates.
     strict_mode : bool
         Require mode match when True.
     include_dominated : bool

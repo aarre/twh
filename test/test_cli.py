@@ -323,15 +323,33 @@ def test_help_command_lists_twh_commands(help_output_lines, command):
     assert any(line.strip().startswith(command) for line in help_output_lines)
 
 
+@pytest.mark.parametrize(
+    ("argv", "expected_top"),
+    [
+        (["ondeck"], None),
+        (["ondeck", "--number", "7"], 7),
+        (["ondeck", "-n", "3"], 3),
+        (["ondeck", "--top", "4"], 4),
+    ],
+)
 @pytest.mark.unit
-def test_ondeck_default_top(monkeypatch):
+def test_ondeck_candidate_count_option(monkeypatch, argv, expected_top):
     """
-    Ensure ondeck defaults to showing 25 top candidates.
+    Ensure ondeck forwards candidate-count options to review logic.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture for patching ondeck implementation.
+    argv : list[str]
+        CLI arguments for ondeck invocation.
+    expected_top : int | None
+        Expected candidate-count limit passed to review.run_ondeck.
 
     Returns
     -------
     None
-        This test asserts the CLI default.
+        This test asserts CLI option forwarding.
     """
     runner = CliRunner()
     captured: dict = {}
@@ -342,10 +360,10 @@ def test_ondeck_default_top(monkeypatch):
 
     monkeypatch.setattr(twh.review, "run_ondeck", fake_run_ondeck)
 
-    result = runner.invoke(twh.build_app(), ["ondeck"])
+    result = runner.invoke(twh.build_app(), argv)
 
     assert result.exit_code == 0
-    assert captured["top"] == 25
+    assert captured["top"] == expected_top
 
 
 @pytest.mark.parametrize(
