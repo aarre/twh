@@ -1,3 +1,21 @@
+## 0.20.0 (2026-02-07)
+
+### Features
+
+- switch effort to pairwise ranking
+- **cli**: support Taskwarrior-style filter-first internal commands
+- **ondeck**: add --number option and default to all candidates
+- add wip UDA for in-progress tracking
+- add ondeck sorting support
+- support selector-before resurface
+- add resurface alias for defer
+
+### Fixes
+
+- normalize selector-first start/stop
+- keep wip synced on start/stop errors
+- **time**: honor task data.location for logs
+
 ## 0.19.0 (2026-02-05)
 
 ### Features
