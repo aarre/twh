@@ -362,7 +362,7 @@ class AddMoveInput:
     blocks : List[str]
         Move IDs blocked by this move.
     metadata : Dict[str, str]
-        Metadata fields keyed by UDA name (imp/urg/opt_human/diff/mode).
+        Metadata fields keyed by UDA name (imp/urg/opt_human/mode).
     """
 
     description: str
@@ -588,7 +588,7 @@ def build_add_args(add_input: AddMoveInput) -> List[str]:
         args.append(f"+{tag}")
     if add_input.due:
         args.append(f"due:{add_input.due}")
-    for field in ("imp", "urg", "opt_human", "diff", "mode"):
+    for field in ("imp", "urg", "opt_human", "mode"):
         value = add_input.metadata.get(field)
         if value:
             args.append(f"{field}:{value}")
@@ -2657,6 +2657,21 @@ def build_app():
         raise typer.Exit(code=exit_code)
 
     @app.command(
+        "effort",
+        help="Collect effort ordering for moves.",
+        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    )
+    def effort_cmd(ctx: typer.Context):
+        from . import effort as effort_module
+
+        try:
+            exit_code = effort_module.run_effort(filters=list(ctx.args))
+        except FileNotFoundError:
+            print("Error: `task` command not found.", file=sys.stderr)
+            raise typer.Exit(code=1)
+        raise typer.Exit(code=exit_code)
+
+    @app.command(
         "ondeck",
         context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
     )
@@ -2924,6 +2939,7 @@ TWH_HELP_ENTRIES: Tuple[Tuple[str, str], ...] = (
     ("diagnose", "Stuck-move helper wizard."),
     ("dominance", "Pairwise dominance prompts for moves."),
     ("criticality", "Pairwise time-criticality prompts for moves."),
+    ("effort", "Pairwise effort prompts for moves."),
     ("resurface", "Resurface moves by delaying their start time."),
     ("option", "Estimate opt_auto values."),
     ("calibrate", "Calibrate precedence/option weights."),
@@ -2942,6 +2958,7 @@ FILTER_FIRST_COMMANDS = {
     "defer",
     "diagnose",
     "dominance",
+    "effort",
     "ondeck",
     "option",
     "resurface",

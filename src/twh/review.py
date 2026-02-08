@@ -89,7 +89,7 @@ class ReviewTask:
     opt_auto : Optional[float]
         Auto-calculated option value estimate.
     diff : Optional[float]
-        Estimated difficulty in hours.
+        Effort rating (0-10, lower is easier).
     criticality : Optional[float]
         Time-criticality rating (0-10) derived from ranking.
     enablement : Optional[float]
@@ -1426,13 +1426,13 @@ def format_task_rationale(task: ReviewTask, components: Dict[str, float]) -> str
     return (
         f"[{move_id}]{marker} {task.description}\n"
         f"  project={proj} mode={mode} imp={imp}d urg={urg}d opt={opt} "
-        f"diff={diff}h crit={crit}\n"
+        f"effort={diff} crit={crit}\n"
         "  "
         f"score={components['total']:.3f} "
         f"(urg={components['urg_score']:.3f}, "
         f"imp={components['imp_score']:.3f}, "
         f"opt={components['opt_score']:.2f}, "
-        f"diff={components['diff_score']:.2f}, "
+        f"effort={components['diff_score']:.2f}, "
         f"crit={components['crit_score']:.2f}, "
         f"o={components['o_score']:.2f}, "
         f"mode*{components['mode_mult']:.2f}, "
@@ -2218,10 +2218,6 @@ def interactive_fill_missing(
         ).strip()
         if value:
             updates["opt_human"] = value
-    if task.diff is None:
-        value = input_func("  Difficulty, i.e., estimated effort (hours): ").strip()
-        if value:
-            updates["diff"] = value
     if not task.mode:
         prompt = modes_module.format_mode_prompt(known_modes)
         while True:
@@ -2290,11 +2286,6 @@ def interactive_fill_missing_incremental(
         ).strip()
         if value:
             apply_func(task.uuid, {"opt_human": value})
-            updated = True
-    if task.diff is None:
-        value = input_func("  Difficulty, i.e., estimated effort (hours): ").strip()
-        if value:
-            apply_func(task.uuid, {"diff": value})
             updated = True
     if not task.mode:
         prompt = modes_module.format_mode_prompt(known_modes)
@@ -2564,7 +2555,7 @@ def run_ondeck(
     if missing:
         for item in missing:
             if all(
-                field in {"dominance", "criticality"}
+                field in {"dominance", "criticality", "diff"}
                 for field in item.missing
             ):
                 continue
@@ -2624,6 +2615,42 @@ def run_ondeck(
         if updated_count:
             updated = True
             print(f"Criticality updated for {updated_count} tied moves.")
+
+    if tie_tiers and any(
+        task.diff is None for tier in tie_tiers for task in tier
+    ):
+        from . import effort as effort_module
+
+        try:
+            effort_module.ensure_effort_uda()
+        except RuntimeError as exc:
+            print(f"twh: ondeck failed: {exc}")
+            return 1
+
+        updated_count = 0
+        for tier in tie_tiers:
+            if not any(task.diff is None for task in tier):
+                continue
+            state = effort_module.build_effort_state(tier)
+            tiers = effort_module.sort_into_tiers(
+                tier,
+                state,
+                chooser=effort_module.make_progress_chooser(
+                    tier,
+                    state,
+                    input_func=input_func,
+                ),
+            )
+            updates = effort_module.build_effort_updates(tiers)
+            try:
+                effort_module.apply_effort_updates(updates)
+            except RuntimeError as exc:
+                print(f"twh: ondeck failed: {exc}")
+                return 1
+            updated_count += len(updates)
+        if updated_count:
+            updated = True
+            print(f"Effort updated for {updated_count} tied moves.")
 
     if updated:
         from . import option_value as option_module

@@ -35,7 +35,6 @@ def test_prompt_add_input_orders_prompts(monkeypatch, tmp_path):
             "30",
             "10",
             "8",
-            "2.5",
             "analysis",
         ]
     )
@@ -52,12 +51,11 @@ def test_prompt_add_input_orders_prompts(monkeypatch, tmp_path):
         "Tags (comma-separated): ",
         "Due date: ",
         "Blocks (move IDs blocked by this move, comma-separated): ",
-            "  Importance horizon - how long will you remember whether this move was done? (days): ",
-            "  Urgency horizon - how long before acting loses value? (days): ",
-            "  Option value - to what extent does doing this move preserve, unlock, or multiply future moves? (0-10): ",
-            "  Difficulty, i.e., estimated effort (hours): ",
-            mode_prompt,
-        ]
+        "  Importance horizon - how long will you remember whether this move was done? (days): ",
+        "  Urgency horizon - how long before acting loses value? (days): ",
+        "  Option value - to what extent does doing this move preserve, unlock, or multiply future moves? (0-10): ",
+        mode_prompt,
+    ]
     assert add_input.description == "Write notes"
     assert add_input.project == "work"
     assert add_input.tags == ["alpha", "beta"]
@@ -67,7 +65,6 @@ def test_prompt_add_input_orders_prompts(monkeypatch, tmp_path):
         "imp": "30",
         "urg": "10",
         "opt_human": "8",
-        "diff": "2.5",
         "mode": "analysis",
     }
 
@@ -111,7 +108,7 @@ def test_prompt_add_input_orders_prompts(monkeypatch, tmp_path):
                 blocks=[],
                 metadata={"diff": "2"},
             ),
-            ["add", "Fix issue", "diff:2"],
+            ["add", "Fix issue"],
         ),
     ],
 )
@@ -160,7 +157,6 @@ def test_run_interactive_add_runs_add_blocks_and_dominance(monkeypatch, tmp_path
             "7",
             "3",
             "5",
-            "1.5",
             "analysis",
         ]
     )
@@ -214,7 +210,6 @@ def test_run_interactive_add_runs_add_blocks_and_dominance(monkeypatch, tmp_path
                 "imp:7",
                 "urg:3",
                 "opt_human:5",
-                "diff:1.5",
                 "mode:analysis",
             ],
             True,
@@ -256,7 +251,6 @@ def test_run_interactive_add_suppresses_taskwarrior_noise(monkeypatch, capsys, t
             "7",
             "3",
             "5",
-            "1.5",
             "analysis",
         ]
     )
@@ -326,7 +320,6 @@ def test_run_interactive_add_applies_context(monkeypatch, capsys):
     prompts = iter(
         [
             "Write move",
-            "",
             "",
             "",
             "",
@@ -406,7 +399,6 @@ def test_run_interactive_add_requires_udas_for_metadata(monkeypatch, capsys):
             "",
             "",
             "9",
-            "",
             "",
             "",
             "",

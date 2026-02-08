@@ -56,6 +56,7 @@ twh stop
 twh time
 twh dominance
 twh criticality
+twh effort
 twh ondeck
 twh defer
 twh resurface
@@ -79,8 +80,8 @@ behaves like `task` for most subcommands and delegated commands replace the
 twh always targets Taskwarrior 3 via the `task` binary and reads configuration
 from `~/.taskrc` (ignoring `TASKRC` overrides).
 `twh add` is interactive: it prompts for the move description, project, tags,
-due date, blocks, and ondeck metadata (imp/urg/opt_human/diff/mode), then runs
-the dominance sorting step. Use `task add` for non-interactive adds.
+due date, blocks, and ondeck metadata (imp/urg/opt_human/mode), then runs the
+dominance sorting step. Use `task add` for non-interactive adds.
 When a Taskwarrior context is active and its definition includes `project:` or
 tag filters, `twh add` automatically applies those values to new moves unless
 you supply them yourself, and prints an informational message. For example,
@@ -138,11 +139,20 @@ Each comparison is saved immediately to `~/.config/twh/criticality.json`
 (override with `TWH_CRITICALITY_PATH`) so interrupted sessions can be resumed.
 Once comparisons are complete, twh writes the numeric `criticality` values.
 
+`twh effort` walks you through pairwise effort choices for moves in scope and
+records the resulting ranking in the `diff` UDA (0 is easiest, 10 is hardest).
+The prompt asks which move would take less effort to complete and assumes
+effort is transitive, so it minimizes comparisons the same way as dominance and
+criticality.
+Each comparison is saved immediately to `~/.config/twh/effort.json` (override
+with `TWH_EFFORT_PATH`) so interrupted sessions can be resumed.
+
 `twh ondeck` resolves dominance ordering for pending moves first, then only
 prompts for missing metadata (imp/urg/opt_human/diff/mode/criticality) when
 moves are tied within a dominance tier. In tie cases, it walks you through the
-metadata wizard (including blocked moves), collects time-criticality rankings
-for those tied moves, and then recommends the next move by scoring ready moves.
+metadata wizard (including blocked moves), collects pairwise criticality and
+effort rankings for those tied moves, and then recommends the next move by
+scoring ready moves.
 If dominance ordering and tie metadata are complete, it emits the report
 directly. The top-move list is
 rendered in the same table layout and color scheme as the default Taskwarrior
@@ -191,8 +201,8 @@ accepted for scoring and calibration. When the wizard runs, `twh ondeck`
 automatically runs `twh option --apply` after updates so opt_auto values stay in
 sync.
 Wizard metadata updates are written after each entry, dominance comparisons
-update UDAs after each choice, and criticality comparisons are saved after each
-choice so partial progress is preserved.
+update UDAs after each choice, and criticality/effort comparisons are saved
+after each choice so partial progress is preserved.
 Ondeck ordering also incorporates a precedence score based on `enablement`,
 `blocker_relief`, `estimate_hours` (falling back to `diff`), dependency
 centrality, and the move's mode (strategic/operational/explore). When a
@@ -205,8 +215,8 @@ governs the ordering.
 Moves with a `start` time in the future are excluded from the ondeck report
 until that time arrives, but the wizard still prompts for missing metadata on
 tied moves in scope.
-If a required UDA is missing, `twh ondeck`, `twh dominance`, and
-`twh criticality` will stop before writing updates to avoid modifying move
+If a required UDA is missing, `twh ondeck`, `twh dominance`, `twh criticality`,
+and `twh effort` will stop before writing updates to avoid modifying move
 descriptions.
 
 `twh resurface` (alias: `twh defer`) targets the current top move from the same
@@ -254,7 +264,7 @@ the resulting weights to `~/.config/twh/calibration.toml` (override with
 `TWH_CALIBRATION_PATH`) and, by default, applies updated `opt_auto` values to
 moves in scope (`--no-apply` skips writes).
 
-Taskwarrior UDA setup for ondeck, dominance, and criticality:
+Taskwarrior UDA setup for ondeck, dominance, criticality, and effort:
 
 ```
 # Dominance edges (comma-separated UUIDs)
@@ -263,9 +273,9 @@ uda.dominates.label=Dom>
 uda.dominated_by.type=string
 uda.dominated_by.label=<Dom
 
-# Difficulty (estimated hours of effort)
+# Effort (derived from pairwise ranking)
 uda.diff.type=numeric
-uda.diff.label=Diff(h)
+uda.diff.label=Effort
 
 # Time-criticality (derived from pairwise ranking)
 uda.criticality.type=numeric

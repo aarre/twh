@@ -1756,7 +1756,7 @@ def test_interactive_fill_missing_prompts_only_for_missing(monkeypatch, tmp_path
         dominates=[],
         raw={},
     )
-    responses = iter(["7", "2.5", "editorial"])
+    responses = iter(["7", "editorial"])
 
     def fake_input(_prompt):
         return next(responses)
@@ -1765,7 +1765,7 @@ def test_interactive_fill_missing_prompts_only_for_missing(monkeypatch, tmp_path
 
     updates = review.interactive_fill_missing(task, input_func=fake_input)
 
-    assert updates == {"imp": "7", "diff": "2.5", "mode": "editorial"}
+    assert updates == {"imp": "7", "mode": "editorial"}
 
 
 @pytest.mark.unit
@@ -1785,7 +1785,7 @@ def test_interactive_fill_missing_incremental_applies_each_entry():
         project=None,
         depends=[],
         imp=None,
-        urg=3,
+        urg=None,
         opt=4,
         diff=None,
         criticality=5.0,
@@ -1793,7 +1793,7 @@ def test_interactive_fill_missing_incremental_applies_each_entry():
         dominates=[],
         raw={},
     )
-    responses = iter(["7", "2.5"])
+    responses = iter(["7", "4"])
     applied = []
 
     def fake_input(_prompt):
@@ -1811,7 +1811,7 @@ def test_interactive_fill_missing_incremental_applies_each_entry():
     assert updated is True
     assert applied == [
         ("u1", {"imp": "7"}),
-        ("u1", {"diff": "2.5"}),
+        ("u1", {"urg": "4"}),
     ]
 
 
@@ -2510,7 +2510,7 @@ def test_run_ondeck_includes_tied_non_ready_with_filters(monkeypatch):
             imp=None,
             urg=None,
             opt=None,
-            diff=None,
+            diff=1.0,
             criticality=5.0,
             mode=None,
             dominates=[],
@@ -2525,7 +2525,7 @@ def test_run_ondeck_includes_tied_non_ready_with_filters(monkeypatch):
             imp=None,
             urg=None,
             opt=None,
-            diff=None,
+            diff=1.0,
             criticality=5.0,
             mode=None,
             dominates=[],
@@ -2618,6 +2618,7 @@ def test_run_ondeck_skips_metadata_without_dominance_ties(monkeypatch):
     monkeypatch.setattr(review, "load_pending_tasks", lambda filters=None: tasks)
     import twh.dominance as dominance
     import twh.criticality as criticality
+    import twh.effort as effort
 
     state = dominance.build_dominance_state(tasks)
     monkeypatch.setattr(
@@ -2632,8 +2633,12 @@ def test_run_ondeck_skips_metadata_without_dominance_ties(monkeypatch):
     def unexpected_criticality(*_args, **_kwargs):
         raise AssertionError("Criticality should not run without ties.")
 
+    def unexpected_effort(*_args, **_kwargs):
+        raise AssertionError("Effort should not run without ties.")
+
     monkeypatch.setattr(review, "interactive_fill_missing_incremental", unexpected_fill)
     monkeypatch.setattr(criticality, "sort_into_tiers", unexpected_criticality)
+    monkeypatch.setattr(effort, "sort_into_tiers", unexpected_effort)
     monkeypatch.setattr(
         review,
         "build_review_report",
@@ -2652,6 +2657,126 @@ def test_run_ondeck_skips_metadata_without_dominance_ties(monkeypatch):
     )
 
     assert exit_code == 0
+
+
+@pytest.mark.unit
+def test_run_ondeck_collects_effort(monkeypatch):
+    """
+    Ensure ondeck collects effort only for dominance ties.
+
+    Returns
+    -------
+    None
+        This test asserts the effort stage is executed.
+    """
+    tasks = [
+        review.ReviewTask(
+            uuid="u1",
+            id=1,
+            description="Move 1",
+            project=None,
+            depends=[],
+            imp=1,
+            urg=1,
+            opt=1,
+            diff=None,
+            criticality=6.0,
+            mode="editorial",
+            dominates=[],
+            raw={},
+        ),
+        review.ReviewTask(
+            uuid="u2",
+            id=2,
+            description="Move 2",
+            project=None,
+            depends=[],
+            imp=1,
+            urg=1,
+            opt=1,
+            diff=None,
+            criticality=6.0,
+            mode="editorial",
+            dominates=[],
+            raw={},
+        ),
+        review.ReviewTask(
+            uuid="u3",
+            id=3,
+            description="Move 3",
+            project=None,
+            depends=[],
+            imp=1,
+            urg=1,
+            opt=1,
+            diff=5.0,
+            criticality=6.0,
+            mode="editorial",
+            dominates=[],
+            raw={},
+        ),
+    ]
+
+    monkeypatch.setattr(review, "load_pending_tasks", lambda filters=None: tasks)
+    import twh.dominance as dominance
+
+    state = dominance.build_dominance_state(tasks)
+    monkeypatch.setattr(
+        review,
+        "_build_dominance_context",
+        lambda pending: (state, [[tasks[0], tasks[1]], [tasks[2]]], set()),
+    )
+    monkeypatch.setattr(
+        review,
+        "build_review_report",
+        lambda *_args, **_kwargs: review.ReviewReport(missing=[], candidates=[]),
+    )
+    monkeypatch.setattr(option_value, "run_option_value", lambda **_kwargs: 0)
+
+    def unexpected_fill(*_args, **_kwargs):
+        raise AssertionError("Wizard should skip diff-only gaps; effort handles them.")
+
+    monkeypatch.setattr(review, "interactive_fill_missing_incremental", unexpected_fill)
+
+    import twh.criticality as criticality
+    import twh.effort as effort
+
+    monkeypatch.setattr(criticality, "ensure_criticality_uda", lambda *_a, **_k: None)
+    monkeypatch.setattr(dominance, "apply_dominance_updates", lambda *_a, **_k: None)
+    monkeypatch.setattr(dominance, "ensure_dominance_udas", lambda *_a, **_k: None)
+    monkeypatch.setattr(effort, "ensure_effort_uda", lambda *_a, **_k: None)
+
+    calls = {}
+
+    def fake_sort_into_tiers(pending, state, chooser):
+        calls["sort"] = [move.uuid for move in pending]
+        return [[pending[0]], [pending[1]]]
+
+    def fake_build_updates(tiers):
+        calls["build"] = [[move.uuid for move in tier] for tier in tiers]
+        return {"u1": 0.0, "u2": 10.0}
+
+    def fake_apply_updates(updates):
+        calls["apply"] = updates
+
+    monkeypatch.setattr(effort, "sort_into_tiers", fake_sort_into_tiers)
+    monkeypatch.setattr(effort, "build_effort_updates", fake_build_updates)
+    monkeypatch.setattr(effort, "apply_effort_updates", fake_apply_updates)
+
+    exit_code = review.run_ondeck(
+        mode=None,
+        limit=20,
+        top=5,
+        strict_mode=False,
+        include_dominated=False,
+        filters=None,
+        input_func=lambda _prompt: "A",
+    )
+
+    assert exit_code == 0
+    assert calls["sort"] == ["u1", "u2"]
+    assert calls["build"] == [["u1"], ["u2"]]
+    assert calls["apply"] == {"u1": 0.0, "u2": 10.0}
 
 
 @pytest.mark.unit
